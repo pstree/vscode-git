@@ -1,0 +1,352 @@
+{
+  "name": "Git",
+  "displayName": "Git",
+  "description": "Git History viewer for VSCode",
+  "version": "0.0.1",
+  "publisher": "zhengxiaosong",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhengxiaosong/vscode-git-branches.git"
+  },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["SCM Providers"],
+  "keywords": [
+    "git",
+    "branch",
+    "branches",
+    "tags",
+    "history",
+    "scm",
+    "source control",
+    "intellij",
+    "jetbrains",
+    "graph"
+  ],
+  "license": "MIT",
+  "extensionDependencies": ["vscode.git"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "gitBranches-history",
+          "title": "%view.gitHistory%",
+          "icon": "images/history.svg"
+        }
+      ]
+    },
+    "views": {
+      "scm": [
+        {
+          "id": "gitBranches.branches",
+          "name": "%view.gitBranch%",
+          "when": "gitOpenRepositoryCount > 0"
+        },
+        {
+          "id": "gitBranches.tags",
+          "name": "%view.gitTag%",
+          "when": "gitOpenRepositoryCount > 0"
+        }
+      ],
+      "gitBranches-history": [
+        {
+          "type": "webview",
+          "id": "gitBranches.historyView",
+          "name": "%view.history%",
+          "when": "gitOpenRepositoryCount > 0"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "gitBranches.checkout",              "title": "%command.checkout%" },
+      { "command": "gitBranches.checkoutAndRebase",     "title": "%command.checkoutAndRebase%" },
+      { "command": "gitBranches.update",                "title": "%command.update%" },
+      { "command": "gitBranches.merge",                 "title": "%command.merge%" },
+      { "command": "gitBranches.rebase",                "title": "%command.rebase%" },
+      { "command": "gitBranches.cherryPick",            "title": "%command.cherryPick%" },
+      { "command": "gitBranches.rename",                "title": "%command.rename%" },
+      { "command": "gitBranches.push",                  "title": "%command.push%" },
+      { "command": "gitBranches.setUpstream",           "title": "%command.setUpstream%" },
+      { "command": "gitBranches.createFrom",            "title": "%command.createFrom%" },
+      { "command": "gitBranches.deleteLocal",           "title": "%command.deleteLocal%" },
+      { "command": "gitBranches.checkoutRemote",        "title": "%command.checkoutRemote%" },
+      { "command": "gitBranches.pull",                  "title": "%command.pull%" },
+      { "command": "gitBranches.pullIntoCurrent",       "title": "%command.pullIntoCurrent%" },
+      { "command": "gitBranches.createPatch",           "title": "%command.createPatch%" },
+      { "command": "gitBranches.deleteRemote",          "title": "%command.deleteRemote%" },
+      { "command": "gitBranches.checkoutTag",           "title": "%command.checkoutTag%" },
+      { "command": "gitBranches.checkoutTagToBranch",   "title": "%command.checkoutTagToBranch%" },
+      { "command": "gitBranches.pushTag",               "title": "%command.pushTag%" },
+      { "command": "gitBranches.deleteTag",             "title": "%command.deleteTag%" },
+      { "command": "gitBranches.fetchAll",              "title": "%command.fetchAll%" },
+      { "command": "gitBranches.createBranch",          "title": "%command.createBranch%", "icon": "$(add)" },
+      { "command": "gitBranches.applyPatch",            "title": "%command.applyPatch%",   "icon": "$(diff)" },
+      { "command": "gitBranches.createTag",             "title": "%command.createTag%",  "icon": "$(add)" },
+      { "command": "gitBranches.openHistory",           "title": "%command.openHistory%", "icon": "$(history)" },
+      { "command": "gitBranches.gitHistory",            "title": "%command.gitHistory%", "icon": "$(history)" },
+      { "command": "gitBranches.fetchBranch",           "title": "%command.fetchBranch%", "icon": "$(sync)" },
+      { "command": "gitBranches.fetchBranchPush", "title": "%command.fetchBranchPush%", "icon": "$(arrow-up)" },
+      { "command": "gitBranches.fetchBranchSpin",       "title": "%command.fetchBranchSpin%",             "icon": "$(sync~spin)" },
+      { "command": "gitBranches.hideRepository",        "title": "%command.hideRepository%" },
+      { "command": "gitBranches.showHiddenRepository",  "title": "%command.showHiddenRepository%", "icon": "$(eye)" },
+      { "command": "gitBranches.refresh",               "title": "%command.refresh%",      "icon": "$(refresh)" }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "gitBranches.createBranch",
+          "when": "view == gitBranches.branches",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitBranches.refresh",
+          "when": "view == gitBranches.tags || view == gitBranches.branches",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitBranches.createTag",
+          "when": "view == gitBranches.tags",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitBranches.showHiddenRepository",
+          "when": "view == gitBranches.branches || view == gitBranches.tags",
+          "group": "9_visibility@1"
+        },
+        {
+          "command": "gitBranches.hideRepository",
+          "when": "view == gitBranches.branches || view == gitBranches.tags",
+          "group": "9_visibility@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "gitBranches.fetchBranch",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(Current)?$/",
+          "group": "inline"
+        },
+        {
+          "command": "gitBranches.fetchBranch",
+          "when": "view == gitBranches.branches && viewItem == remoteBranch",
+          "group": "inline"
+        },
+        {
+          "command": "gitBranches.fetchBranchSpin",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(Current)?-loading$/",
+          "group": "inline"
+        },
+        {
+          "command": "gitBranches.fetchBranchSpin",
+          "when": "view == gitBranches.branches && viewItem == remoteBranch-loading",
+          "group": "inline"
+        },
+        {
+          "command": "gitBranches.fetchBranchPush",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(Current)?NoUpstream$/",
+          "group": "inline"
+        },
+        {
+          "command": "gitBranches.fetchBranchSpin",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(Current)?NoUpstream-loading$/",
+          "group": "inline"
+        },
+
+        {
+          "command": "gitBranches.createBranch",
+          "when": "view == gitBranches.branches && viewItem == localGroup",
+          "group": "1_actions@1"
+        },
+
+
+        {
+          "command": "gitBranches.fetchAll",
+          "when": "view == gitBranches.branches && (viewItem == remoteSection || viewItem == remoteGroup)",
+          "group": "1_actions@1"
+        },
+
+
+        {
+          "command": "gitBranches.update",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
+          "group": "1_sync@1"
+        },
+        {
+          "command": "gitBranches.push",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
+          "group": "1_sync@2"
+        },
+        {
+          "command": "gitBranches.setUpstream",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
+          "group": "1_sync@3"
+        },
+        {
+          "command": "gitBranches.rename",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
+          "group": "3_manage@1"
+        },
+        {
+          "command": "gitBranches.createPatch",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
+          "group": "2_integrate@1"
+        },
+        {
+          "command": "gitBranches.applyPatch",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
+          "group": "2_integrate@2"
+        },
+
+        {
+          "command": "gitBranches.checkout",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "gitBranches.checkoutAndRebase",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "1_checkout@2"
+        },
+        {
+          "command": "gitBranches.update",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "2_integrate@1"
+        },
+        {
+          "command": "gitBranches.merge",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "2_integrate@2"
+        },
+        {
+          "command": "gitBranches.rebase",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "2_integrate@3"
+        },
+        {
+          "command": "gitBranches.createFrom",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "2_integrate@4"
+        },
+        {
+          "command": "gitBranches.cherryPick",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "2_integrate@5"
+        },
+        {
+          "command": "gitBranches.createPatch",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "2_integrate@6"
+        },
+        {
+          "command": "gitBranches.applyPatch",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "2_integrate@7"
+        },
+        {
+          "command": "gitBranches.push",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "3_sync@1"
+        },
+        {
+          "command": "gitBranches.setUpstream",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "3_sync@2"
+        },
+        {
+          "command": "gitBranches.rename",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "4_manage@1"
+        },
+        {
+          "command": "gitBranches.deleteLocal",
+          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
+          "group": "5_destructive@1"
+        },
+
+        {
+          "command": "gitBranches.checkoutRemote",
+          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "gitBranches.pullIntoCurrent",
+          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
+          "group": "2_integrate@1"
+        },
+        {
+          "command": "gitBranches.cherryPick",
+          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
+          "group": "2_integrate@2"
+        },
+        {
+          "command": "gitBranches.createPatch",
+          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
+          "group": "2_integrate@3"
+        },
+        {
+          "command": "gitBranches.pull",
+          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
+          "group": "3_sync@1"
+        },
+        {
+          "command": "gitBranches.deleteRemote",
+          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
+          "group": "4_destructive@1"
+        },
+        {
+          "command": "gitBranches.checkoutTagToBranch",
+          "when": "view == gitBranches.tags && viewItem == tag",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "gitBranches.checkoutTag",
+          "when": "view == gitBranches.tags && viewItem == tag",
+          "group": "1_checkout@2"
+        },
+        {
+          "command": "gitBranches.pushTag",
+          "when": "view == gitBranches.tags && viewItem == tag",
+          "group": "2_sync@1"
+        },
+        {
+          "command": "gitBranches.deleteTag",
+          "when": "view == gitBranches.tags && viewItem == tag",
+          "group": "3_destructive@1"
+        },
+
+        {
+          "command": "gitBranches.hideRepository",
+          "when": "(view == gitBranches.branches || view == gitBranches.tags) && viewItem == repository",
+          "group": "9_visibility@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "gitBranches.gitHistory",
+          "when": "resourceScheme == file && gitOpenRepositoryCount > 0",
+          "group": "7_gitbranches@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "gitBranches.gitHistory",
+          "when": "resourceScheme == file && gitOpenRepositoryCount > 0",
+          "group": "7_gitbranches@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "typecheck": "tsc --noEmit",
+    "watch": "node esbuild.js --watch",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}

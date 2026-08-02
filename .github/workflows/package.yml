@@ -1,0 +1,42 @@
+name: Package Extension
+
+# 当推送以 "v" 开头的 tag（如 v0.0.6）时，自动打包并把 .vsix 上传到对应的 Release。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 上传附件到 Release 需要写权限
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package extension
+        run: npx @vscode/vsce package --allow-missing-repository
+
+      - name: Upload VSIX to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 按触发本次运行的 tag 找到对应 Release 并追加附件；
+          # 不设置 body/name，避免覆盖你已写的 Release 标题与说明。
+          tag_name: ${{ github.ref_name }}
+          files: "*.vsix"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
