@@ -3,11 +3,11 @@
   "displayName": "Git",
   "description": "Git History viewer for VSCode",
   "version": "0.0.1",
-  "publisher": "zhengxiaosong",
+  "publisher": "qian",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zhengxiaosong/vscode-git-branches.git"
+    "url": "https://github.com/pstree/vscode-git"
   },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["SCM Providers"],

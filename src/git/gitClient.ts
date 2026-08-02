@@ -95,7 +95,7 @@ export async function getChangedFiles(repo: Repository, hash: string, parent: st
     const left = parent && parent.length > 0 ? parent : EMPTY_TREE_SHA;
     const args = ['diff-tree', '--no-commit-id', '--name-status', '-r', '-M', left, hash];
     if (filePath) { args.push('--', filePath); }
-    const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath });
+    const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
     return parseNameStatusOutput(stdout);
 }
 
@@ -103,7 +103,7 @@ export async function getChangedFiles(repo: Repository, hash: string, parent: st
 export async function getChangedFilesBetween(repo: Repository, leftRef: string, rightRef: string, filePath?: string): Promise<ChangedFile[]> {
     const args = ['diff', '--name-status', '-r', '-M', leftRef, rightRef];
     if (filePath) { args.push('--', filePath); }
-    const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath });
+    const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
     return parseNameStatusOutput(stdout);
 }
 
@@ -116,7 +116,7 @@ export async function getChangedFilesBetween(repo: Repository, leftRef: string, 
 export async function getChangedFilesVsWorktree(repo: Repository, hash: string, filePath?: string): Promise<ChangedFile[]> {
     const args = ['diff', '--name-status', '-M', hash];
     if (filePath) { args.push('--', filePath); }
-    const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath });
+    const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
     return parseNameStatusOutput(stdout);
 }
 
@@ -163,6 +163,19 @@ export function parseUnifiedDiff(stdout: string): Map<string, CompareFile> {
             continue;
         }
         if (raw.startsWith('rename from ') || raw.startsWith('rename to ')) {
+            // Rename: git omits `---`/`+++` for pure renames, so set up `current`
+            // here so any following hunks are captured. oldPath/path are filled in
+            // as we see each rename line.
+            const p = raw.slice(raw.indexOf(' ', 7) + 1).trim();
+            if (!current) {
+                current = { status: 'R', path: p, oldPath: p, binary: false, hunks: [] };
+                files.set(p, current);
+                currentHunk = null;
+            } else if (raw.startsWith('rename from ')) {
+                current.oldPath = p;
+            } else {
+                current.path = p;
+            }
             continue;
         }
         if (raw.startsWith('--- ')) {

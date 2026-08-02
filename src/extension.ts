@@ -25,7 +25,11 @@ export function activate(context: vscode.ExtensionContext): void {
         showCollapseAll: false,
     });
 
+    let disposed = false;
+    context.subscriptions.push({ dispose: () => { disposed = true; } });
+
     const refresh = async () => {
+        if (disposed) { return; }
         // The built-in git extension watches each repository and fires
         // state.onDidChange on ref/HEAD/index changes; give it a moment to
         // propagate before we re-query. We deliberately do NOT call the global
@@ -33,6 +37,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // "Select repository" QuickPick, which breaks every git op that goes
         // through withProgress (pull/push/fetch/reset/...).
         await new Promise(r => setTimeout(r, 500));
+        if (disposed) { return; }
         branchesProvider.invalidate();
         tagProvider.invalidate();
     };

@@ -13,4 +13,4 @@ esbuild.js
 openspec/**
 **/.codebuddy/**
 **/openspec/**
-vscode-git-branches-*.vsix
+git-*.vsix

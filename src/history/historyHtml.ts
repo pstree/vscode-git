@@ -7,7 +7,7 @@
 
 import * as vscode from 'vscode';
 import { escapeHtml } from '../shared/html';
-import { getDict, Lang, t } from '../shared/i18n';
+import { getDict, Lang, resolveLang, t } from '../shared/i18n';
 import { CommitData, RowLayout, renderCommitRows } from './graph';
 
 export interface HistoryUiState {
@@ -47,7 +47,7 @@ strong { color: var(--vscode-foreground); }
 // Shown when loading a branch's history fails (mirrors the previous panel.dispose() error path).
 export function errorHistoryHtml(cspSource: string, message: string): string {
     const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline';`;
-    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+    return `<!DOCTYPE html><html lang="${resolveLang(vscode.env.language)}"><head><meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
 html, body { height: 100%; margin: 0; }
@@ -231,16 +231,6 @@ export function buildHistoryHtml(
   tr.commit-row:hover td { background: var(--vscode-list-hoverBackground); }
   tr.commit-row.selected td { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
   tr.commit-row td { user-select: none; }
-  /* Graph column: cap width so very-wide lane diagrams don't push subject/date off-screen;
-     SVG inside scrolls horizontally if it exceeds the cap. */
-  .col-graph {
-    padding-left: 6px; padding-right: 4px;
-    max-width: 200px; overflow-x: auto; overflow-y: hidden;
-  }
-  .col-graph::-webkit-scrollbar { height: 4px; }
-  .col-graph::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, rgba(128,128,128,.3)); }
-  #graph-th { max-width: 200px; }
-
   /* Graph column: cap width so very-wide lane diagrams don't push subject/date off-screen;
      SVG inside scrolls horizontally if it exceeds the cap. */
   .col-graph {

@@ -45,8 +45,23 @@ export function registerCommands(
         })
     );
 
-    registerBranches({ context, gitApi, hiddenRepos, branchesProvider, historyView, reg });
-    registerTags({ context, gitApi, hiddenRepos, reg });
-    registerGlobal({ context, gitApi, hiddenRepos, branchesProvider, reg });
-    registerHistoryView(context, historyView, gitApi);
+    // Each registration group is isolated so a throw in one (e.g. a bad command
+    // ID or handler wiring) doesn't abort the rest of the command setup — the
+    // extension would otherwise fail to register later commands silently.
+    const groupErrors: string[] = [];
+    for (const [name, fn] of [
+        ['branches', () => registerBranches({ context, gitApi, hiddenRepos, branchesProvider, historyView, reg })],
+        ['tags', () => registerTags({ context, gitApi, hiddenRepos, reg })],
+        ['global', () => registerGlobal({ context, gitApi, hiddenRepos, branchesProvider, reg })],
+        ['historyView', () => registerHistoryView(context, historyView, gitApi)],
+    ] as const) {
+        try {
+            fn();
+        } catch (e: any) {
+            groupErrors.push(`${name}: ${e?.message ?? e}`);
+        }
+    }
+    if (groupErrors.length > 0) {
+        vscode.window.showErrorMessage('Git Branches: some commands failed to register — ' + groupErrors.join('; '));
+    }
 }

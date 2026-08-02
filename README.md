@@ -262,19 +262,6 @@ Each pill is capped at 110px with ellipsis for long names.
 
 When multiple git repositories are open, branches and tags are grouped under repository nodes:
 
-```
-▼ BRANCHES
-  ▼ frontend
-    ▼ Local
-        ★ main
-    ▼ Remote
-      ▼ origin
-          main
-  ▼ backend
-    ▼ Local
-        ...
-```
-
 #### Hide / show repositories
 
 Repositories you don't actively work in can be hidden from the Branches and Tags views to reduce clutter:
@@ -298,12 +285,10 @@ Repositories you don't actively work in can be hidden from the Branches and Tags
 ### From VSIX (local build)
 
 ```bash
-git clone https://github.com/your-username/vscode-git-branches.git
-cd vscode-git-branches
 npm install
 npm run compile
 npx @vscode/vsce package --allow-missing-repository
-code --install-extension vscode-git-branches-0.0.1.vsix
+code --install-extension Git-0.0.1.vsix
 ```
 
 Then reload VS Code (`Developer: Reload Window`).
