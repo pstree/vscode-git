@@ -34,5 +34,6 @@
     "command.fetchBranchSpin": "拉取中…",
     "command.hideRepository": "隐藏仓库",
     "command.showHiddenRepository": "显示隐藏的仓库...",
-    "command.refresh": "刷新"
+    "command.refresh": "刷新",
+    "command.stageCurrentFile": "暂存文件"
 }

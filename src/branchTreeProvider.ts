@@ -86,7 +86,7 @@ export class BranchItem extends vscode.TreeItem {
 
 export class LocalGroupItem extends vscode.TreeItem {
     constructor(public readonly repo: Repository) {
-        super('Local', vscode.TreeItemCollapsibleState.Expanded);
+        super('Local', vscode.TreeItemCollapsibleState.Collapsed);
         this.contextValue = 'localGroup';
         this.iconPath = new vscode.ThemeIcon('folder-opened');
     }
@@ -94,7 +94,7 @@ export class LocalGroupItem extends vscode.TreeItem {
 
 export class RemoteSectionItem extends vscode.TreeItem {
     constructor(public readonly repo: Repository) {
-        super('Remote', vscode.TreeItemCollapsibleState.Expanded);
+        super('Remote', vscode.TreeItemCollapsibleState.Collapsed);
         this.contextValue = 'remoteSection';
         this.iconPath = new vscode.ThemeIcon('folder-opened');
     }
@@ -105,7 +105,7 @@ export class RemoteGroupItem extends vscode.TreeItem {
         public readonly remoteName: string,
         public readonly repo: Repository,
     ) {
-        super(remoteName, vscode.TreeItemCollapsibleState.Expanded);
+        super(remoteName, vscode.TreeItemCollapsibleState.Collapsed);
         this.iconPath = new vscode.ThemeIcon('cloud');
         this.contextValue = 'remoteGroup';
     }
@@ -114,7 +114,7 @@ export class RemoteGroupItem extends vscode.TreeItem {
 export class RepoItem extends vscode.TreeItem {
     constructor(public readonly repo: Repository) {
         const name = repo.rootUri.path.split('/').pop() ?? repo.rootUri.path;
-        super(name, vscode.TreeItemCollapsibleState.Expanded);
+        super(name, vscode.TreeItemCollapsibleState.Collapsed);
         this.iconPath = new vscode.ThemeIcon('repo');
         this.contextValue = 'repository';
     }

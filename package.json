@@ -87,11 +87,12 @@
       { "command": "gitBranches.openHistory",           "title": "%command.openHistory%", "icon": "$(history)" },
       { "command": "gitBranches.gitHistory",            "title": "%command.gitHistory%", "icon": "$(history)" },
       { "command": "gitBranches.fetchBranch",           "title": "%command.fetchBranch%", "icon": "$(sync)" },
-      { "command": "gitBranches.fetchBranchPush", "title": "%command.fetchBranchPush%", "icon": "$(arrow-up)" },
+      { "command": "gitBranches.fetchBranchPush",       "title": "%command.fetchBranchPush%", "icon": "$(arrow-up)" },
       { "command": "gitBranches.fetchBranchSpin",       "title": "%command.fetchBranchSpin%",             "icon": "$(sync~spin)" },
       { "command": "gitBranches.hideRepository",        "title": "%command.hideRepository%" },
       { "command": "gitBranches.showHiddenRepository",  "title": "%command.showHiddenRepository%", "icon": "$(eye)" },
-      { "command": "gitBranches.refresh",               "title": "%command.refresh%",      "icon": "$(refresh)" }
+      { "command": "gitBranches.refresh",               "title": "%command.refresh%",      "icon": "$(refresh)" },
+      { "command": "gitBranches.stageCurrentFile",      "title": "%command.stageCurrentFile%" }
     ],
     "menus": {
       "view/title": [
@@ -322,6 +323,11 @@
         }
       ],
       "editor/context": [
+        {
+          "command": "gitBranches.stageCurrentFile",
+          "when": "resourceScheme == file && gitOpenRepositoryCount > 0",
+          "group": "6_gitbranches@1"
+        },
         {
           "command": "gitBranches.gitHistory",
           "when": "resourceScheme == file && gitOpenRepositoryCount > 0",

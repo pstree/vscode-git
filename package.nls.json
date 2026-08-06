@@ -34,5 +34,6 @@
     "command.fetchBranchSpin": "Pulling…",
     "command.hideRepository": "Hide Repository",
     "command.showHiddenRepository": "Show Hidden Repository...",
-    "command.refresh": "Refresh"
+    "command.refresh": "Refresh",
+    "command.stageCurrentFile": "Stage File"
 }

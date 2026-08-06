@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { RepoItem } from '../branchTreeProvider';
 import { runGit } from '../git/gitClient';
-import { pickRepo, triggerRefresh, withProgress } from '../shared/ui';
+import { findRepoForFile, pickRepo, triggerRefresh, withProgress } from '../shared/ui';
 import type { RegisterCtx } from './context';
 
 export function registerGlobal(ctx: RegisterCtx): void {
@@ -113,6 +113,28 @@ export function registerGlobal(ctx: RegisterCtx): void {
 
     context.subscriptions.push(vscode.commands.registerCommand('gitBranches.refresh', async () => {
         await triggerRefresh();
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand('gitBranches.stageCurrentFile', async (uri?: vscode.Uri) => {
+        // When invoked from the editor context menu the clicked file's URI is
+        // passed as the first argument; otherwise fall back to the active editor.
+        const targetUri = uri
+            ?? vscode.window.activeTextEditor?.document.uri;
+        if (!targetUri || targetUri.scheme !== 'file') {
+            vscode.window.showInformationMessage('暂存文件：没有可暂存的文件。');
+            return;
+        }
+
+        const repo = findRepoForFile(gitApi.repositories, targetUri);
+        if (!repo) {
+            vscode.window.showInformationMessage('暂存文件：该文件不在任何已打开的 Git 仓库中。');
+            return;
+        }
+
+        const relPath = path.relative(repo.rootUri.fsPath, targetUri.fsPath);
+        await withProgress(`正在暂存 ${targetUri.fsPath.split(/[\\/]/).pop()} …`, () =>
+            runGit(repo, ['add', '--', relPath])
+        );
     }));
 
     // ---- Multi-repo visibility ----
