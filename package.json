@@ -65,16 +65,12 @@
       { "command": "gitBranches.update",                "title": "%command.update%" },
       { "command": "gitBranches.merge",                 "title": "%command.merge%" },
       { "command": "gitBranches.rebase",                "title": "%command.rebase%" },
-      { "command": "gitBranches.cherryPick",            "title": "%command.cherryPick%" },
       { "command": "gitBranches.rename",                "title": "%command.rename%" },
       { "command": "gitBranches.push",                  "title": "%command.push%" },
       { "command": "gitBranches.setUpstream",           "title": "%command.setUpstream%" },
-      { "command": "gitBranches.createFrom",            "title": "%command.createFrom%" },
       { "command": "gitBranches.deleteLocal",           "title": "%command.deleteLocal%" },
       { "command": "gitBranches.checkoutRemote",        "title": "%command.checkoutRemote%" },
       { "command": "gitBranches.pull",                  "title": "%command.pull%" },
-      { "command": "gitBranches.pullIntoCurrent",       "title": "%command.pullIntoCurrent%" },
-      { "command": "gitBranches.createPatch",           "title": "%command.createPatch%" },
       { "command": "gitBranches.deleteRemote",          "title": "%command.deleteRemote%" },
       { "command": "gitBranches.checkoutTag",           "title": "%command.checkoutTag%" },
       { "command": "gitBranches.checkoutTagToBranch",   "title": "%command.checkoutTagToBranch%" },
@@ -189,11 +185,6 @@
           "group": "3_manage@1"
         },
         {
-          "command": "gitBranches.createPatch",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
-          "group": "2_integrate@1"
-        },
-        {
           "command": "gitBranches.applyPatch",
           "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
           "group": "2_integrate@2"
@@ -225,21 +216,6 @@
           "group": "2_integrate@3"
         },
         {
-          "command": "gitBranches.createFrom",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
-          "group": "2_integrate@4"
-        },
-        {
-          "command": "gitBranches.cherryPick",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
-          "group": "2_integrate@5"
-        },
-        {
-          "command": "gitBranches.createPatch",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
-          "group": "2_integrate@6"
-        },
-        {
           "command": "gitBranches.applyPatch",
           "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
           "group": "2_integrate@7"
@@ -269,21 +245,6 @@
           "command": "gitBranches.checkoutRemote",
           "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
           "group": "1_checkout@1"
-        },
-        {
-          "command": "gitBranches.pullIntoCurrent",
-          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
-          "group": "2_integrate@1"
-        },
-        {
-          "command": "gitBranches.cherryPick",
-          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
-          "group": "2_integrate@2"
-        },
-        {
-          "command": "gitBranches.createPatch",
-          "when": "view == gitBranches.branches && (viewItem == remoteBranch || viewItem == remoteBranch-loading)",
-          "group": "2_integrate@3"
         },
         {
           "command": "gitBranches.pull",

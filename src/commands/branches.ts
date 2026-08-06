@@ -284,18 +284,6 @@ export function registerBranches(ctx: RegisterCtx): void {
         );
     });
 
-    reg('gitBranches.createFrom', async (item?) => {
-        if (!item) { return; }
-        const newName = await vscode.window.showInputBox({
-            prompt: `New branch name (from ${item.ref.name})`,
-            validateInput: v => v.trim() ? undefined : 'Branch name cannot be empty',
-        });
-        if (!newName) { return; }
-        await withProgress(`Creating branch ${newName}...`, () =>
-            item.repo.createBranch(newName.trim(), true, item.ref.name)
-        );
-    });
-
     reg('gitBranches.deleteLocal', async (item?) => {
         if (!item) { return; }
         const ok = await confirm(`Delete local branch "${item.ref.name}"?`, 'Delete');
@@ -330,85 +318,6 @@ export function registerBranches(ctx: RegisterCtx): void {
         }
     });
 
-    reg('gitBranches.createPatch', async (item?) => {
-        if (!item) { return; }
-        const baseBranch = item.ref.name;
-        if (!baseBranch) {
-            vscode.window.showErrorMessage('所选分支没有名称。');
-            return;
-        }
-        const currentBranch = item.repo.state.HEAD?.name;
-
-        // Pick the diff scope: the working tree (local current code, incl. uncommitted)
-        // vs the base branch, or just the committed changes (HEAD vs base).
-        const scope = await vscode.window.showQuickPick(
-            [
-                {
-                    label: '工作区改动（含未提交）',
-                    description: 'git diff <branch> — 当前工作区代码相对该分支的全部差异',
-                    value: 'worktree' as const,
-                },
-                {
-                    label: '仅已提交改动',
-                    description: 'git diff <branch> HEAD — 当前分支已提交内容相对该分支的差异',
-                    value: 'committed' as const,
-                },
-            ],
-            { placeHolder: `生成补丁的范围（基准分支：${baseBranch}）` }
-        );
-        if (!scope) { return; }
-
-        const args = scope.value === 'committed'
-            ? ['diff', '-M', '-U3', baseBranch, 'HEAD']
-            : ['diff', '-M', '-U3', baseBranch];
-
-        let patch: string;
-        try {
-            const { stdout } = await execFileAsync(getGitPath(), args, {
-                cwd: item.repo.rootUri.fsPath,
-                maxBuffer: SHOW_MAX_BUFFER,
-            });
-            patch = stdout;
-        } catch (e: any) {
-            vscode.window.showErrorMessage(String(e.stderr ?? e.message ?? e).trim());
-            return;
-        }
-        if (!patch.trim()) {
-            vscode.window.showInformationMessage(`"${baseBranch}" 与当前代码没有差异，未生成补丁。`);
-            return;
-        }
-
-        const dest = await vscode.window.showQuickPick(
-            [
-                { label: '保存到文件并打开', description: '写入 .patch 文件并在编辑器中打开' },
-                { label: '复制到剪贴板', description: '将补丁内容复制到剪贴板' },
-            ],
-            { placeHolder: '生成补丁后如何输出？' }
-        );
-        if (!dest) { return; }
-
-        if (dest.label.startsWith('复制到')) {
-            await vscode.env.clipboard.writeText(patch);
-            vscode.window.showInformationMessage('补丁内容已复制到剪贴板。');
-            return;
-        }
-
-        // Save to a .patch file (relative paths resolve against the repo root).
-        const root = item.repo.rootUri.fsPath;
-        const defaultName = `${(currentBranch ?? 'worktree')}-vs-${baseBranch}.patch`.replace(/[\\/:*?"<>|]/g, '_');
-        const input = await vscode.window.showInputBox({
-            prompt: '补丁文件保存路径（仓库根目录下的文件名或绝对路径）',
-            value: path.join(root, defaultName),
-            validateInput: v => v.trim() ? undefined : '路径不能为空',
-        });
-        if (!input) { return; }
-        const targetPath = path.isAbsolute(input) ? input : path.join(root, input);
-        await fs.promises.writeFile(targetPath, patch, 'utf8');
-        const doc = await vscode.workspace.openTextDocument(targetPath);
-        await vscode.window.showTextDocument(doc);
-        vscode.window.showInformationMessage(`补丁已保存：${targetPath}`);
-    });
-
     // ---- Remote branch commands ----
 
     reg('gitBranches.checkoutRemote', async (item?) => {
@@ -431,45 +340,6 @@ export function registerBranches(ctx: RegisterCtx): void {
         await withProgress(`Fetching ${branch} from ${remote}...`, () =>
             item.repo.fetch(remote, branch)
         );
-    });
-
-    reg('gitBranches.pullIntoCurrent', async (item?) => {
-        if (!item) { return; }
-        const { remote, branch } = parseRemoteBranch(item.repo, item.ref);
-        const currentBranch = item.repo.state.HEAD?.name;
-        if (!currentBranch) {
-            vscode.window.showErrorMessage('No current branch.');
-            return;
-        }
-
-        const strategies = [
-            { label: 'Merge', description: `Fetch and merge ${remote}/${branch} into ${currentBranch}`, value: 'merge' as const },
-            { label: 'Rebase', description: `Fetch then rebase ${currentBranch} onto ${remote}/${branch}`, value: 'rebase' as const },
-        ];
-        const strategy = await vscode.window.showQuickPick(strategies, {
-            placeHolder: `Pull ${remote}/${branch} into "${currentBranch}"`,
-        });
-        if (!strategy) { return; }
-
-        await withProgress(`Pulling ${branch} into ${currentBranch}...`, async () => {
-            await runGit(item.repo, ['fetch', remote, branch]);
-            if (strategy.value === 'merge') {
-                await item.repo.merge(`${remote}/${branch}`);
-            } else {
-                try {
-                    await runGit(item.repo, ['rebase', `${remote}/${branch}`]);
-                } catch (e: any) {
-                    const msg = String(e.stderr ?? e.message ?? e);
-                    if (msg.includes('conflict') || msg.includes('CONFLICT')) {
-                        vscode.window.showWarningMessage(
-                            'Rebase has conflicts. Resolve them, then run "git rebase --continue". To cancel: "git rebase --abort".'
-                        );
-                    } else {
-                        throw e;
-                    }
-                }
-            }
-        });
     });
 
     reg('gitBranches.deleteRemote', async (item?) => {
@@ -513,19 +383,6 @@ export function registerBranches(ctx: RegisterCtx): void {
     });
 
     // ---- Cherry-pick ----
-
-    reg('gitBranches.cherryPick', async (item?) => {
-        if (!item) { return; }
-        const commit = item.ref.commit;
-        if (!commit) {
-            vscode.window.showErrorMessage('No commit hash available for this ref.');
-            return;
-        }
-        const label = item.ref.name ?? commit.substring(0, 8);
-        const ok = await confirm(`Cherry-pick tip commit of "${label}" (${commit.substring(0, 8)}) into current branch?`, 'Cherry-pick');
-        if (!ok) { return; }
-        await withProgress(`Cherry-picking ${commit.substring(0, 8)}...`, () =>
-            runGit(item.repo, ['cherry-pick', commit])
-        );
-    });
+    // (cherry-pick is intentionally available only from the Git History view,
+    // where the user can browse commits and pick the exact one to apply.)
 }
