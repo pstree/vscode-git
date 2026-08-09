@@ -10,7 +10,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { Repository } from '../gitApi';
 import { execFileAsync, getGitPath, runGit } from '../git/gitClient';
-import { confirm, withProgress } from '../shared/ui';
+import { confirm, triggerRefresh, withProgress } from '../shared/ui';
 
 export async function exportPatches(repo: Repository, hashes: string[]): Promise<void> {
     if (hashes.length === 0) { return; }
@@ -134,29 +134,25 @@ export async function handleCommitAction(repo: Repository, msg: any): Promise<vo
             return;
         }
         case 'cherryPick': {
-            const ok = await confirm(`Cherry-pick ${shortHash} onto current branch?`, 'Cherry-pick');
-            if (!ok) { return; }
             await withProgress(`Cherry-picking ${shortHash}...`, () => runGit(repo, ['cherry-pick', hash]));
+            await triggerRefresh();
             vscode.window.showInformationMessage(`Cherry-picked ${shortHash} onto current branch.`);
             return;
         }
         case 'revert': {
-            const ok = await confirm(`Revert ${shortHash}? This creates a new commit that undoes it.`, 'Revert');
-            if (!ok) { return; }
             await withProgress(`Reverting ${shortHash}...`, () => runGit(repo, ['revert', '--no-edit', hash]));
+            await triggerRefresh();
             vscode.window.showInformationMessage(`Reverted ${shortHash} (a new commit was created).`);
             return;
         }
         case 'resetSoft': {
-            const ok = await confirm(`Reset --soft to ${shortHash}? Your working tree and index are kept.`, 'Reset Soft');
-            if (!ok) { return; }
             await withProgress(`Resetting (soft) to ${shortHash}...`, () => runGit(repo, ['reset', '--soft', hash]));
+            await triggerRefresh();
             return;
         }
         case 'resetHard': {
-            const ok = await confirm(`Reset --hard to ${shortHash}? ⚠ Discards ALL uncommitted changes.`, 'Reset Hard');
-            if (!ok) { return; }
             await withProgress(`Resetting (hard) to ${shortHash}...`, () => runGit(repo, ['reset', '--hard', hash]));
+            await triggerRefresh();
             return;
         }
         case 'openInBrowser': {
