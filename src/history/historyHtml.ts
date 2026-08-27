@@ -574,6 +574,19 @@ export function buildHistoryHtml(
   let viewMode = 'list'; // 'list' (file picker) | 'diff' (inline side-by-side)
   let compareWorktree = false; // when true, file clicks diff the commit against the live working tree
 
+  // File-scoped history: when the user switches the branch dropdown away from
+  // the original branch, commit clicks show the diff between the working-tree
+  // file and that commit's (selected branch's) version — instead of the usual
+  // commit-vs-parent diff — so the right side reflects "working file vs other
+  // branch". initialRef is the branch the view was opened with; currentScope
+  // tracks the dropdown selection (updated when the host confirms a scope change).
+  const fileScoped = ${!!filePath};
+  const initialRef = ${JSON.stringify(ref)};
+  let currentScope = ${JSON.stringify(scope)};
+  function shouldWorktreeCompare() {
+    return fileScoped && currentScope !== initialRef;
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
@@ -740,7 +753,9 @@ export function buildHistoryHtml(
   commitsEl.addEventListener('click', (e) => {
     const row = e.target.closest('tr.commit-row');
     if (!row) { return; }
-    compareWorktree = false;
+    // File-scoped history with a non-original branch selected → compare the
+    // selected commit against the live working tree (file vs other branch).
+    compareWorktree = shouldWorktreeCompare();
     const ctrl = e.metaKey || e.ctrlKey;
     const shift = e.shiftKey;
 
@@ -956,7 +971,10 @@ export function buildHistoryHtml(
       anchorRow = null;
       currentHash = null;
       currentParent = null;
-      compareWorktree = false;
+      currentScope = m.scope;
+      // File-scoped history: after switching away from the original branch,
+      // commits compare against the working tree (file vs other branch).
+      compareWorktree = shouldWorktreeCompare();
       clearSelection();
       refreshExportButton();
       infoEl.textContent = '';
