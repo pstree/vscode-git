@@ -163,9 +163,6 @@ export function registerBranches(ctx: RegisterCtx): void {
         });
         if (!strategy) { return; }
 
-        const ok = await confirm(`${strategy.label} "${item.ref.name}" into current branch?`, strategy.label);
-        if (!ok) { return; }
-
         await withProgress(`Merging ${item.ref.name}...`, async () => {
             if (strategy.value === 'squash') {
                 await runGit(item.repo, ['merge', '--squash', item.ref.name!]);
