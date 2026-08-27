@@ -29,31 +29,27 @@ Displays local and remote branches together in a single tree, grouped by scope:
 | Action | Description |
 |--------|-------------|
 | Checkout | Switch to this branch |
-| Create Branch from Here | Create and checkout a new branch from this one |
-| Create Patch | Generate a patch of the current code vs this branch (working tree or committed), then save to a `.patch` file or copy to clipboard |
-| Apply Patch | Apply a `.patch` / `.diff` file (or clipboard) to the working tree, or as a commit via `git am` |
-| Merge into Current | Merge with strategy picker: **Merge** (commit), **Squash and Merge**, or **No Fast-Forward** |
-| Rebase onto This Branch | Rebase current branch onto this one |
 | Checkout and Rebase onto Current | Switch to this branch and rebase it onto the (previously) current branch |
-| Cherry-pick Tip Commit | Cherry-pick the latest commit of this branch |
+| Update | Pull latest changes from upstream (`git pull` for current branch, fast-forward fetch for others) |
+| Merge into Current | Merge with strategy picker: **Merge** (commit), **Squash and Merge**, or **No Fast-Forward** — executes directly, no confirmation |
+| Rebase onto This Branch | Rebase current branch onto this one |
+| Apply Patch | Apply a `.patch` / `.diff` file (or clipboard) to the working tree, or as a commit via `git am` |
 | Push | Push to its upstream remote (auto-detected or prompted) |
 | Set Upstream | Set the tracking remote branch |
 | Rename Branch | Rename in-place |
 | Delete Branch | Delete locally (offers force-delete if not fully merged) |
-| Update Branch | Pull latest changes from upstream (`git pull` for current branch, fast-forward fetch for others) |
-| View History | Open the built-in history viewer (see [History viewer](#history-viewer)) |
+| View History | Open the built-in history viewer (see [History viewer](#history-viewer)) — also triggered by single-clicking the branch row |
+
+**Inline icons:** each local branch row shows an inline refresh button (pull/update its upstream). A branch that has never been pushed shows a `↑` push button instead, plus a `↑ no upstream` note; clicking it pushes and sets the upstream in one step. The refresh icon spins while an operation is in progress.
 
 #### Remote branch actions (right-click)
 
 | Action | Description |
 |--------|-------------|
 | Checkout (Create Tracking Branch) | Create a local tracking branch |
-| Pull into Current Branch... | Pull this remote branch into the current branch with strategy picker (merge / rebase / squash) |
-| Fetch | Fetch the latest state of this branch |
-| Cherry-pick Tip Commit | Cherry-pick the latest commit |
-| Create Patch | Generate a patch of the current code vs this remote branch (working tree or committed), then save to a `.patch` file or copy to clipboard |
+| Update | Fetch the latest state of this branch |
 | Delete Remote Branch | Delete on the remote (offers prune if already gone) |
-| View History | Open the built-in history viewer |
+| View History | Open the built-in history viewer — also triggered by single-clicking the branch row |
 
 #### Local group actions (right-click on "Local")
 
@@ -101,6 +97,9 @@ Sync status is fetched in the background after the view opens; remote unreachabl
 |--------|-------------|
 | Create Branch | Create a new branch from current HEAD |
 | Refresh | Refresh the branches list |
+| Show Hidden Repos / Hide Repo | From the `...` (overflow) menu: show a previously hidden repo, or hide the repo whose row you right-click |
+
+In a multi-repo workspace the same toolbar buttons appear on the Tags panel; see [Multi-repo workspace support](#multi-repo-workspace-support).
 
 ### Ahead / Behind indicator
 
@@ -118,13 +117,15 @@ The current branch uses live data from VS Code's git state (same source as the s
 
 Selecting **View History** on any branch opens a built-in webview with a two-pane layout: a paginated commit table on top and a "files changed" panel at the bottom.
 
+**Opening file history:** right-click a file in the **editor** or **Explorer** and choose **Git History** to open the viewer scoped to that single file (see [File-scoped history](#file-scoped-history)). The same context menu offers **Stage File** to `git add` the file.
+
 **Compare a commit with the working tree:** right-click any commit in the top list and choose **Compare with working tree**. The changed files load in the bottom panel (the commit row is tagged `↔ 工作区`); clicking any file opens a native diff with the commit's version on the left and your live editable working file on the right — so you can apply the commit's changes onto the working tree using the built-in `<<` / `>>` transfer arrows.
 
 #### Layout
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│ History · [ feature/login ▼ ]            Graph: (─Left─│─Right─│─Off─) │
+│ History · [ feature/login ▼ ] 🔍 [filter commits...]                   │
 ├────────────────────────────────────────────────────────────────────────┤
 │ Graph  Hash      Refs            Message              Date    Author   │
 │  ●     310a3a3   [⎇ HEAD→main]   Add hide/show repo   2d ago  song     │
@@ -133,7 +134,7 @@ Selecting **View History** on any branch opens a built-in webview with a two-pan
 │  …                                                                     │
 │                       [  Load more (200 loaded)  ]                     │
 ├══════════════════════════════════════════════════════════════════════ │  ← drag splitter
-│ FILES CHANGED  76133a5  Enhance reference rendering                    │
+│ FILES CHANGED  76133a5  Enhance reference rendering   [Export][全部打开]  │
 ├────────────────────────────────────────────────────────────────────────┤
 │  [M]  src/                 branchTreeProvider.ts                       │
 │  [M]  src/                 commands.ts                                 │
@@ -152,19 +153,22 @@ The branch name after `History ·` is a `<select>` dropdown:
 
 Switching the dropdown reloads the history from the first page; the file panel resets.
 
+#### File-scoped history
+
+Opening **Git History** from the editor or Explorer (right-click a file → **Git History**) scopes the viewer to that single file:
+
+- The toolbar shows a `Path: <file>` chip; the commit list contains only commits that touched that file
+- Click `×` on the chip to return to the full branch history
+- **Cross-branch file compare:** switch the branch dropdown to another branch, then click a commit — the bottom panel and the diff now compare the **working-tree file against that commit's (other branch's) version**, instead of the usual commit-vs-parent diff. So you can see exactly how your local file differs from the same file on another branch. Switching back to the original branch restores normal commit-vs-parent behavior.
+- **Export Patch in file-scoped history** writes a patch that contains only this file's changes.
+
 #### Pagination
 
 Histories load **200 commits per page**. A `Load more (N loaded)` button at the bottom of the table fetches the next batch via `git log --skip=N --max-count=200`. When you reach the start of history the button is replaced with `— end of history (N commits) —`. Per-page loading keeps very large repos responsive — the first page is usually under a second even for thousands-of-commits histories.
 
-#### Graph column controls
+#### Commit graph
 
-The leftmost column is an SVG lane graph showing branch topology, color-coded per lane. A pill-shaped switch in the toolbar controls its placement:
-
-| Position | Effect |
-|----------|--------|
-| **Left** (default) | Graph rendered as first column |
-| **Right** | Graph moved to last column — text columns get priority |
-| **Off** | Graph hidden entirely |
+The leftmost column is an SVG lane graph showing branch topology, color-coded per lane. It is always rendered as the first column.
 
 When the graph would otherwise exceed 200px of width (many parallel branches), the column itself stays at 200px and the SVG inside scrolls horizontally.
 
@@ -201,7 +205,10 @@ Content is served by a custom URI scheme (`gitbranches-show:`) that runs `git sh
 
 **Cmd-click** (macOS) / **Ctrl-click** (Windows/Linux) a second commit row to switch the file panel from "this commit vs. parent" to "commit A vs. commit B". The two rows stay highlighted; the file panel shows the cumulative diff. Cmd/Ctrl-click again to return to single-commit mode.
 
-The **Files Changed** title bar also has an **Export Patch** button: it saves the currently selected commit (or, in range mode, the A↔B diff) as a `.patch` / `.diff` file, or copies it to the clipboard — the same action as the right-click **Export patch…** / **Export as one patch…** items.
+The **Files Changed** title bar has two buttons:
+
+- **Export Patch**: saves the currently selected commit (or, in range mode, the A↔B diff) as a `.patch` / `.diff` file — the same action as the right-click **Export patch…** / **Export as one patch…** items. In file-scoped history the patch only contains the tracked file's changes.
+- **全部打开 (Open All)**: opens every changed file as a native VS Code diff editor in its own tab, so you can jump between hunks with `F7` / `Shift+F7`. In working-tree compare mode it opens the commit-vs-worktree diffs instead.
 
 #### Search / filter
 
@@ -238,6 +245,9 @@ Filter operates over the commits already loaded; click `Load more` to extend the
 | Item | Description |
 |------|-------------|
 | GET 左侧旧版本（覆盖本地） | Restore the file's **left ("before")** version shown in the current diff into the local working tree via `git checkout <hash> -- <path>`, overwriting the current file. Applies to every selected file row. |
+| Compare with working tree | Diff this single file's committed version (read-only left) against the live editable working file (right) |
+
+File rows support single-click, Ctrl/Cmd-click to toggle, and Shift-click for a contiguous range — multi-select them, then right-click to GET all at once.
 
 #### Resizable splitter
 
@@ -245,7 +255,7 @@ The horizontal bar between the commit table and the files panel is draggable —
 
 #### Layout persistence
 
-Graph position (Left / Right / Off) and splitter height persist to `workspaceState`, so opening the history viewer next time uses your last layout.
+Splitter height persists to `workspaceState`, so opening the history viewer next time uses your last layout.
 
 #### Reference badges in commit rows
 
