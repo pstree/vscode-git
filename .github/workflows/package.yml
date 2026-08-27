@@ -30,13 +30,13 @@ jobs:
       - name: Package VSIX
         run: npx @vscode/vsce package --allow-missing-repository
 
-      - name: Create or update first release
+      - name: Create or update release for tag
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: v1.0.0
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           body: |
-            Auto-packaged from the latest push.
+            vsix package from the tag ${{ github.ref_name }}.
           files: |
             *.vsix
           draft: false
