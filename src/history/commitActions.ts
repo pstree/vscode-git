@@ -12,7 +12,7 @@ import { Repository } from '../gitApi';
 import { execFileAsync, getGitPath, runGit } from '../git/gitClient';
 import { confirm, triggerRefresh, withProgress } from '../shared/ui';
 
-export async function exportPatches(repo: Repository, hashes: string[]): Promise<void> {
+export async function exportPatches(repo: Repository, hashes: string[], filePath?: string): Promise<void> {
     if (hashes.length === 0) { return; }
 
     // Webview sends hashes in DOM order (newest first) — export oldest first so
@@ -22,9 +22,10 @@ export async function exportPatches(repo: Repository, hashes: string[]): Promise
     // Default file name: single commit -> its short hash; multiple -> range.
     const shortFirst = ordered[0].substring(0, 8);
     const shortLast = ordered[ordered.length - 1].substring(0, 8);
+    const fileSuffix = filePath ? `-${path.basename(filePath).replace(/\.[^.]+$/, '')}` : '';
     const defaultName = ordered.length === 1
-        ? `${shortFirst}.patch`
-        : `${shortFirst}..${shortLast}-${ordered.length}-commits.patch`;
+        ? `${shortFirst}${fileSuffix}.patch`
+        : `${shortFirst}..${shortLast}${fileSuffix}-${ordered.length}-commits.patch`;
 
     const target = await vscode.window.showSaveDialog({
         saveLabel: 'Export patch',
@@ -38,11 +39,14 @@ export async function exportPatches(repo: Repository, hashes: string[]): Promise
     await withProgress(`Exporting ${ordered.length} commit(s) into one patch...`, async () => {
         const parts: string[] = [];
         // Generate each commit's patch separately (works for non-contiguous
-        // selections too) and concatenate into a single file.
+        // selections too) and concatenate into a single file. When a file path
+        // is given (file-scoped history), restrict the patch to that file.
         for (const h of ordered) {
+            const args = ['format-patch', '-1', '--stdout', h];
+            if (filePath) { args.push('--', filePath); }
             const { stdout } = await execFileAsync(
                 getGitPath(),
-                ['format-patch', '-1', '--stdout', h],
+                args,
                 { cwd: repo.rootUri.fsPath, maxBuffer: 64 * 1024 * 1024 }
             );
             parts.push(stdout.trimEnd());
@@ -66,21 +70,24 @@ export async function exportPatches(repo: Repository, hashes: string[]): Promise
  * as a single `.patch` file — the same comparison surfaced in the history
  * view's "Compare with working tree" mode.
  */
-export async function exportWorktreePatch(repo: Repository, hash: string): Promise<void> {
+export async function exportWorktreePatch(repo: Repository, hash: string, filePath?: string): Promise<void> {
     const shortHash = hash.substring(0, 8);
+    const fileSuffix = filePath ? `-${path.basename(filePath).replace(/\.[^.]+$/, '')}` : '';
     const target = await vscode.window.showSaveDialog({
         saveLabel: 'Export patch',
         title: `Export working-tree diff vs ${shortHash} into one patch`,
-        defaultUri: vscode.Uri.joinPath(repo.rootUri, `${shortHash}-worktree.patch`),
+        defaultUri: vscode.Uri.joinPath(repo.rootUri, `${shortHash}${fileSuffix}-worktree.patch`),
         filters: { 'Patch files': ['patch'], 'All files': ['*'] },
     });
     if (!target) { return; }
     const outFile = target.fsPath;
 
     await withProgress(`Exporting working-tree diff vs ${shortHash}...`, async () => {
+        const args = ['diff', hash];
+        if (filePath) { args.push('--', filePath); }
         const { stdout } = await execFileAsync(
             getGitPath(),
-            ['diff', hash],
+            args,
             { cwd: repo.rootUri.fsPath, maxBuffer: 64 * 1024 * 1024 }
         );
         await fs.promises.writeFile(outFile, stdout, 'utf8');

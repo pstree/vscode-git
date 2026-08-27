@@ -413,12 +413,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             }
         } else if (msg?.type === 'exportPatch') {
             const hashes = Array.isArray(msg.hashes) ? msg.hashes.map(String).filter(Boolean) : [];
-            await exportPatches(repo, hashes);
+            await exportPatches(repo, hashes, this.filePath);
         } else if (msg?.type === 'exportWorktreePatch') {
             // Export the diff between the selected commit and the live working tree
             // (the same comparison shown in the bottom panel in worktree mode).
             const hash = String(msg.hash ?? '');
-            if (hash) { await exportWorktreePatch(repo, hash); }
+            if (hash) { await exportWorktreePatch(repo, hash, this.filePath); }
         } else if (msg?.type === 'getFile') {
             // GET restores the LEFT (old) side of the file comparison to the working
             // tree (the left side is the "before" version shown in the diff):
