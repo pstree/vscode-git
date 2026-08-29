@@ -146,7 +146,7 @@ export function buildHistoryHtml(
   .history-search:focus {
     outline: 1px solid var(--vscode-focusBorder); outline-offset: 0;
   }
-  tr.commit-row.filtered-out { display: none; }
+  .commit-row.filtered-out { display: none; }
 
   /* Right-click context menu (custom — VS Code's webview default is minimal) */
   .ctx-menu {
@@ -215,53 +215,53 @@ export function buildHistoryHtml(
     cursor: default;
   }
   .pill-switch button:disabled { opacity: 0.6; cursor: wait; }
-  table { border-collapse: collapse; table-layout: fixed; width: 100%; }
-  thead th {
+  /* Shared grid container so the sticky header and every commit row line up on
+     the same column tracks. The non-subject columns use auto (content-based)
+     sizing, and subject uses minmax(0,1fr) to absorb the remaining width. */
+  #history-grid {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    align-items: center;
+  }
+  #commits { display: contents; }
+  .history-head, .commit-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+    align-items: center;
+  }
+  .history-head {
     position: sticky; top: 38px; z-index: 9;
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
     border-bottom: 1px solid var(--vscode-panel-border);
+  }
+  .history-head .col {
     padding: 4px 10px;
     text-align: left; font-size: 11px; font-weight: 600;
     color: var(--vscode-descriptionForeground);
     letter-spacing: 0.06em; text-transform: uppercase;
     white-space: nowrap;
   }
-  td { padding: 2px 10px; white-space: nowrap; vertical-align: middle; }
-  tr.commit-row { cursor: pointer; }
-  tr.commit-row:hover td { background: var(--vscode-list-hoverBackground); }
-  tr.commit-row.selected td { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
-  tr.commit-row td { user-select: none; }
+  .commit-row { cursor: pointer; }
+  .commit-row:hover { background: var(--vscode-list-hoverBackground); }
+  .commit-row.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+  .commit-row .col { min-width: 0; padding: 2px 10px; white-space: nowrap; user-select: none; vertical-align: middle; }
   /* Graph column: cap width so very-wide lane diagrams don't push subject/date off-screen;
-     SVG inside scrolls horizontally if it exceeds the cap. */
+     the inner wrapper scrolls horizontally when the SVG exceeds the cap. */
   .col-graph {
-    padding-left: 6px; padding-right: 4px;
-    max-width: 200px; overflow-x: auto; overflow-y: hidden;
+    padding-left: 6px; padding-right: 6px;
+    max-width: 120px;
+    overflow: visible;
   }
-  .col-graph::-webkit-scrollbar { height: 4px; }
-  .col-graph::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, rgba(128,128,128,.3)); }
-  #graph-th { max-width: 200px; }
+  .col-graph .graph-scroll { overflow-x: auto; overflow-y: hidden; }
+  .graph-scroll::-webkit-scrollbar { height: 4px; }
+  .graph-scroll::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, rgba(128,128,128,.3)); }
 
-  .col-hash   { color: #e5c07b; font-weight: bold; width: 8%; overflow: hidden; text-overflow: ellipsis; }
-  .col-refs   { width: 10%; }
-  .col-refs .refs-inner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .col-subject{ width: 45%; overflow: hidden; text-overflow: ellipsis; }
-  .col-date   { color: var(--vscode-descriptionForeground); width: 14%; text-align: left; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .col-author { color: #61afef; width: 10%; overflow: hidden; text-overflow: ellipsis; }
-  .ref-pill {
-    display: inline-flex; align-items: center; gap: 3px;
-    padding: 0 5px; margin-right: 3px;
-    border-radius: 8px;
-    font-size: 10px; line-height: 14px; height: 14px;
-    vertical-align: middle;
-    max-width: 110px;
-    border: 1px solid transparent;
-  }
-  .ref-pill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ref-icon { flex: 0 0 auto; opacity: 0.85; }
-  .ref-head   { background: rgba(86,182,194,.18);  color: #56b6c2; border-color: rgba(86,182,194,.35); font-weight: 600; }
-  .ref-local  { background: rgba(152,195,121,.18); color: #98c379; border-color: rgba(152,195,121,.30); }
-  .ref-remote { background: rgba(224,108,117,.16); color: #e06c75; border-color: rgba(224,108,117,.28); }
-  .ref-tag    { background: rgba(229,192,123,.18); color: #e5c07b; border-color: rgba(229,192,123,.35); }
+  .history-head .col-subject, .commit-row .col-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .col-hash   { color: #e5c07b; font-weight: bold; overflow: hidden; text-overflow: ellipsis; }
+  .col-subject{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .col-date   { color: var(--vscode-descriptionForeground); text-align: left; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .col-author { color: #61afef; overflow: hidden; text-overflow: ellipsis; }
 
   .files-toolbar {
     position: sticky; top: 0; z-index: 5;
@@ -460,19 +460,16 @@ export function buildHistoryHtml(
     })() : ''}
     <input type="search" class="history-search" id="history-search" placeholder="${T('toolbar.searchPlaceholder')}" autocomplete="off" spellcheck="false" />
   </div>
-  <table>
-    <thead>
-      <tr>
-        <th id="graph-th" style="min-width:${svgWidth + 16}px"></th>
-        <th class="col-hash">${T('table.hash')}</th>
-        <th class="col-subject">${T('table.message')}</th>
-        <th class="col-author">${T('table.author')}</th>
-        <th class="col-date">${T('table.date')}</th>
-        <th class="col-refs">${T('table.refs')}</th>
-      </tr>
-    </thead>
-    <tbody id="commits">${rows}</tbody>
-  </table>
+  <div id="history-grid">
+    <div class="history-head">
+      <div class="col col-graph" id="graph-th"></div>
+      <div class="col col-hash">${T('table.hash')}</div>
+      <div class="col col-subject">${T('table.message')}</div>
+      <div class="col col-author">${T('table.author')}</div>
+      <div class="col col-date">${T('table.date')}</div>
+    </div>
+    <div id="commits">${rows}</div>
+  </div>
   <div class="load-more" id="load-more">
     ${hasMore
       ? `<button id="load-more-btn">${T('btn.loadMore', commits.length)}</button>`
@@ -495,8 +492,6 @@ export function buildHistoryHtml(
 </div>
 
 <div class="ctx-menu" id="commit-ctx-menu">
-  <div class="item" data-action="copyHash">${T('menu.copyHash')}</div>
-  <div class="item" data-action="copyShortHash">${T('menu.copyShortHash')}</div>
   <div class="item" data-action="copySubject">${T('menu.copySubject')}</div>
   <div class="sep"></div>
   <div class="item" data-action="checkout">${T('menu.checkout')}</div>
@@ -553,19 +548,19 @@ export function buildHistoryHtml(
   // top value left a 1px gap above the header — measure it live instead.
   function syncHeaderTop() {
     const tb = document.querySelector('.top .toolbar');
-    const ths = document.querySelectorAll('thead th');
-    if (tb && ths.length) {
-      const h = tb.offsetHeight;
-      ths.forEach(t => { t.style.top = h + 'px'; });
+    const head = document.querySelector('.history-head');
+    if (tb && head) {
+      head.style.top = (tb.offsetHeight) + 'px';
     }
   }
   syncHeaderTop();
   window.addEventListener('resize', syncHeaderTop);
   // Re-sync after the table is rebuilt by the host (e.g. scope change).
   const historyRoot = document.getElementById('history');
-  if (historyRoot) {
+  const syncRoot = historyRoot || commitsEl;
+  if (syncRoot) {
     const mo = new MutationObserver(syncHeaderTop);
-    mo.observe(historyRoot, { childList: true, subtree: true });
+    mo.observe(syncRoot, { childList: true, subtree: true });
   }
   let currentHash = null;
   let currentParent = null;
@@ -681,7 +676,7 @@ export function buildHistoryHtml(
   let rangeTo = null;   // newer hash (right side of diff)
 
   function allRows() {
-    return Array.from(commitsEl.querySelectorAll('tr.commit-row'));
+    return Array.from(commitsEl.querySelectorAll('.commit-row'));
   }
   function visibleRows() {
     return allRows().filter(r => !r.classList.contains('filtered-out'));
@@ -751,7 +746,7 @@ export function buildHistoryHtml(
   }
 
   commitsEl.addEventListener('click', (e) => {
-    const row = e.target.closest('tr.commit-row');
+    const row = e.target.closest('.commit-row');
     if (!row) { return; }
     // File-scoped history with a non-original branch selected → compare the
     // selected commit against the live working tree (file vs other branch).
@@ -900,8 +895,7 @@ export function buildHistoryHtml(
   });
 
   const loadMoreEl = document.getElementById('load-more');
-  const graphTh = document.getElementById('graph-th');
-  let loadedCount = commitsEl.querySelectorAll('tr.commit-row').length;
+  let loadedCount = commitsEl.querySelectorAll('.commit-row').length;
 
   function attachLoadMoreHandler() {
     const btn = document.getElementById('load-more-btn');
@@ -939,16 +933,13 @@ export function buildHistoryHtml(
         renderFiles(m.files);
       }
     } else if (m?.type === 'moreCommits') {
-      // Append new rows
-      const tmp = document.createElement('tbody');
+      // Append new rows (parse into a plain div so the div rows stay intact)
+      const tmp = document.createElement('div');
       tmp.innerHTML = m.rowsHtml;
       while (tmp.firstChild) {
         commitsEl.appendChild(tmp.firstChild);
       }
       loadedCount += m.added;
-      if (m.svgWidth && graphTh) {
-        graphTh.style.minWidth = (m.svgWidth + 16) + 'px';
-      }
       applySearchFilter();
       // Replace load-more area content
       if (m.hasMore) {
@@ -979,9 +970,6 @@ export function buildHistoryHtml(
       refreshExportButton();
       infoEl.textContent = '';
       filesEl.innerHTML = '<div class="files-empty">' + t('empty.selectCommit') + '</div>';
-      if (m.svgWidth && graphTh) {
-        graphTh.style.minWidth = (m.svgWidth + 16) + 'px';
-      }
       // Sync dropdown to confirmed scope, re-enable it
       if (branchSelect) {
         if (branchSelect.value !== m.scope) { branchSelect.value = m.scope; }
@@ -1024,7 +1012,7 @@ export function buildHistoryHtml(
   let searchQuery = '';
   function applySearchFilter(rows) {
     const q = searchQuery.trim().toLowerCase();
-    const targets = rows || commitsEl.querySelectorAll('tr.commit-row');
+    const targets = rows || commitsEl.querySelectorAll('.commit-row');
     if (!q) {
       targets.forEach(tr => tr.classList.remove('filtered-out'));
       return;
@@ -1074,7 +1062,7 @@ export function buildHistoryHtml(
   window.addEventListener('blur', hideCtxMenus);
 
   commitsEl.addEventListener('contextmenu', (e) => {
-    const row = e.target.closest('tr.commit-row');
+    const row = e.target.closest('.commit-row');
     if (!row) { return; }
     e.preventDefault();
 

@@ -5,7 +5,7 @@
 // `renderCommitRows` turn that layout into the SVG + table rows shown in the
 // history webview. Pure: no vscode or git dependency, only `./ui` for HTML helpers.
 
-import { escapeHtml, renderRefs } from '../shared/html';
+import { escapeHtml } from '../shared/html';
 
 const GRAPH_COLORS = ['#61afef', '#98c379', '#e5c07b', '#e06c75', '#c678dd', '#56b6c2', '#d19a66'];
 export const LANE_W = 14;
@@ -161,18 +161,17 @@ function renderRowSvg(row: RowLayout, svgWidth: number): string {
     return `<svg width="${svgWidth}" height="${ROW_H}" style="display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">${els.join('')}</svg>`;
 }
 
-/** Render the full commit list as `<tr>` rows (graph cell + hash/subject/author/date/refs). */
+/** Render the full commit list as `<div class="commit-row">` rows (graph cell + hash/subject/author/date/refs). */
 export function renderCommitRows(commits: CommitData[], layouts: RowLayout[], svgWidth: number): string {
     return commits.map((c, i) => {
         const row = layouts[i];
         const parent = c.parents[0] ?? '';
-        return `<tr class="commit-row" data-hash="${escapeHtml(c.hash)}" data-parent="${escapeHtml(parent)}" data-display="${escapeHtml(c.display)}" data-subject="${escapeHtml(c.subject)}" data-author="${escapeHtml(c.author)}">
-  <td class="col-graph">${renderRowSvg(row, svgWidth)}</td>
-  <td class="col-hash">${escapeHtml(c.display)}</td>
-  <td class="col-subject" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</td>
-  <td class="col-author">${escapeHtml(c.author)}</td>
-  <td class="col-date">${escapeHtml(c.date)}</td>
-  <td class="col-refs"><div class="refs-inner">${renderRefs(c.refs)}</div></td>
-</tr>`;
+        return `<div class="commit-row" data-hash="${escapeHtml(c.hash)}" data-parent="${escapeHtml(parent)}" data-display="${escapeHtml(c.display)}" data-subject="${escapeHtml(c.subject)}" data-author="${escapeHtml(c.author)}">
+  <div class="col col-graph"><div class="graph-scroll">${renderRowSvg(row, svgWidth)}</div></div>
+  <div class="col col-hash">${escapeHtml(c.display)}</div>
+  <div class="col col-subject" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</div>
+  <div class="col col-author">${escapeHtml(c.author)}</div>
+  <div class="col col-date">${escapeHtml(c.date)}</div>
+</div>`;
     }).join('');
 }
