@@ -166,7 +166,10 @@ export function renderCommitRows(commits: CommitData[], layouts: RowLayout[], sv
     return commits.map((c, i) => {
         const row = layouts[i];
         const parent = c.parents[0] ?? '';
-        return `<div class="commit-row" data-hash="${escapeHtml(c.hash)}" data-parent="${escapeHtml(parent)}" data-display="${escapeHtml(c.display)}" data-subject="${escapeHtml(c.subject)}" data-author="${escapeHtml(c.author)}">
+        // Pre-lowercased haystack for the client-side search filter (one read
+        // per row instead of four dataset reads + four toLowerCase calls).
+        const search = (c.hash + '\n' + c.display + '\n' + c.subject + '\n' + c.author).toLowerCase();
+        return `<div class="commit-row" data-hash="${escapeHtml(c.hash)}" data-parent="${escapeHtml(parent)}" data-display="${escapeHtml(c.display)}" data-subject="${escapeHtml(c.subject)}" data-author="${escapeHtml(c.author)}" data-search="${escapeHtml(search)}">
   <div class="col col-graph"><div class="graph-scroll">${renderRowSvg(row, svgWidth)}</div></div>
   <div class="col col-hash">${escapeHtml(c.display)}</div>
   <div class="col col-subject" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</div>

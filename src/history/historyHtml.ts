@@ -7,8 +7,12 @@
 
 import * as vscode from 'vscode';
 import { escapeHtml } from '../shared/html';
-import { getDict, Lang, resolveLang } from '../shared/i18n';
+import { getDict, Lang, makeT, resolveLang } from '../shared/i18n';
 import { CommitData, renderCommitRows, RowLayout } from './graph';
+
+// Document scaffolding shared by the three HTML builders below.
+const baseCsp = (cspSource: string) => `default-src 'none'; style-src ${cspSource} 'unsafe-inline';`;
+const htmlLangOf = (lang: Lang) => (lang === 'zh' ? 'zh-CN' : 'en');
 
 export interface HistoryUiState {
     bottomFlex?: string; // CSS flex-basis value e.g. "240px"
@@ -25,11 +29,9 @@ export function writeHistoryUiState(context: vscode.ExtensionContext, patch: Par
 
 // Shown in the bottom-panel history view before any branch has been selected.
 export function placeholderHistoryHtml(cspSource: string, lang: Lang = 'en'): string {
-    const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline';`;
-    const L = getDict(lang);
-    const t0 = (k: string) => L[k] ?? k;
-    return `<!DOCTYPE html><html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
+    const t = makeT(lang);
+    return `<!DOCTYPE html><html lang="${htmlLangOf(lang)}"><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="${baseCsp(cspSource)}">
 <style>
 html, body { height: 100%; margin: 0; }
 body {
@@ -41,14 +43,13 @@ body {
 }
 strong { color: var(--vscode-foreground); }
 </style></head>
-<body><div>${t0('empty.noBranch')}<br>${t0('empty.rightClickHint')}</div></body></html>`;
+<body><div>${t('empty.noBranch')}<br>${t('empty.rightClickHint')}</div></body></html>`;
 }
 
 // Shown when loading a branch's history fails (mirrors the previous panel.dispose() error path).
 export function errorHistoryHtml(cspSource: string, message: string): string {
-    const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline';`;
-    return `<!DOCTYPE html><html lang="${resolveLang(vscode.env.language)}"><head><meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
+    return `<!DOCTYPE html><html lang="${htmlLangOf(resolveLang(vscode.env.language))}"><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="${baseCsp(cspSource)}">
 <style>
 html, body { height: 100%; margin: 0; }
 body {
@@ -68,17 +69,27 @@ export function buildHistoryHtml(
     lang: Lang,
 ): string {
     const rows = renderCommitRows(commits, layouts, svgWidth);
-    const L = getDict(lang);
-    const T = (k: string, ...a: (string | number)[]) => {
-        let s = L[k] ?? k;
-        a.forEach((x, i) => { s = s.replace(new RegExp(`\\{${i}\\}`, 'g'), String(x)); });
-        return s;
-    };
-    const htmlLang = lang === 'zh' ? 'zh-CN' : 'en';
+    const T = makeT(lang);
+    const csp = baseCsp(cspSource) + ` script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data:;`;
 
-    const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data:;`;
+    // Branch dropdown: the ref the user opened from first (always shown, even if
+    // remote), then the remaining local branches, then the "-- ALL --" sentinel.
+    const seen = new Set<string>([ref]);
+    const options = [`<option value="${escapeHtml(ref)}"${scope === ref ? ' selected' : ''}>${escapeHtml(ref)}</option>`];
+    for (const b of branches) {
+        if (seen.has(b)) { continue; }
+        seen.add(b);
+        options.push(`<option value="${escapeHtml(b)}"${scope === b ? ' selected' : ''}>${escapeHtml(b)}</option>`);
+    }
+    options.push(`<option value="${escapeHtml(allSentinel)}"${scope === allSentinel ? ' selected' : ''}>${T('toolbar.allScope')}</option>`);
+    const branchOptions = options.join('\n      ');
 
-    return `<!DOCTYPE html><html lang="${htmlLang}"><head><meta charset="UTF-8">
+    const short = filePath ? (filePath.split('/').pop() || filePath) : '';
+    const fileChip = filePath
+        ? `<span class="file-chip" title="${T('toolbar.fileChipTitle', escapeHtml(filePath))}"><span class="file-chip-pre">${T('toolbar.pathChip')}</span><span class="file-chip-label">${escapeHtml(short)}</span><button type="button" class="file-chip-clear" id="clear-file" title="${T('toolbar.fileChipClear')}" aria-label="${T('toolbar.fileChipClearAria')}">×</button></span>`
+        : '';
+
+    return `<!DOCTYPE html><html lang="${htmlLangOf(lang)}"><head><meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
@@ -116,8 +127,6 @@ export function buildHistoryHtml(
     letter-spacing: 0.03em;
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   }
-  .control-group { display: inline-flex; align-items: center; gap: 8px; }
-  .control-group-right { margin-left: auto; }
   .branch-select {
     background: var(--vscode-input-background, var(--vscode-editor-background));
     color: var(--vscode-input-foreground, var(--vscode-foreground));
@@ -189,32 +198,6 @@ export function buildHistoryHtml(
     font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 8px; opacity: .65;
   }
   .file-chip-clear:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.25)); }
-  .control-label {
-    color: var(--vscode-descriptionForeground);
-    font-weight: 500; font-size: 11px;
-    letter-spacing: 0.02em;
-  }
-  .pill-switch {
-    display: inline-flex;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 999px;
-    overflow: hidden;
-    background: var(--vscode-editor-background);
-  }
-  .pill-switch button {
-    background: transparent; color: var(--vscode-foreground);
-    border: 0; border-left: 1px solid var(--vscode-panel-border);
-    padding: 2px 14px; font-size: 11px; line-height: 18px; font-weight: 500;
-    cursor: pointer; font-family: inherit; letter-spacing: 0;
-  }
-  .pill-switch button:first-child { border-left: 0; }
-  .pill-switch button:hover:not(.active):not(:disabled) { background: var(--vscode-list-hoverBackground); }
-  .pill-switch button.active {
-    background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
-    color: var(--vscode-button-foreground, var(--vscode-list-activeSelectionForeground));
-    cursor: default;
-  }
-  .pill-switch button:disabled { opacity: 0.6; cursor: wait; }
   /* Shared grid container so the sticky header and every commit row line up on
      the same column tracks. The non-subject columns use auto (content-based)
      sizing, and subject uses minmax(0,1fr) to absorb the remaining width. */
@@ -259,7 +242,6 @@ export function buildHistoryHtml(
 
   .history-head .col-subject, .commit-row .col-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .col-hash   { color: #e5c07b; font-weight: bold; overflow: hidden; text-overflow: ellipsis; }
-  .col-subject{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .col-date   { color: var(--vscode-descriptionForeground); text-align: left; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .col-author { color: #61afef; overflow: hidden; text-overflow: ellipsis; }
 
@@ -288,6 +270,7 @@ export function buildHistoryHtml(
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   }
   .files-toolbar .commit-info .hash { color: #e5c07b; font-weight: bold; margin-right: 6px; flex: 0 0 auto; }
+  .files-toolbar .commit-info .vs-worktree { color: var(--vscode-charts-blue, #56b6c2); font-weight: 600; }
   .files-empty {
     padding: 14px; color: var(--vscode-descriptionForeground);
     font-size: 12px;
@@ -324,28 +307,28 @@ export function buildHistoryHtml(
     padding: 10px 14px 24px;
     text-align: center;
   }
-  .load-more button {
+  /* Load-more and export-patch share one secondary-button recipe. */
+  .load-more button, .export-patch-btn {
     background: var(--vscode-button-secondaryBackground, transparent);
     color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
     border: 1px solid var(--vscode-panel-border);
-    padding: 5px 18px;
     border-radius: 3px;
-    font-size: 12px;
     cursor: pointer;
     font-family: inherit;
   }
-  .load-more button:hover:not(:disabled) {
+  .load-more button { padding: 5px 18px; font-size: 12px; }
+  .export-patch-btn { padding: 2px 10px; font-size: 11px; line-height: 18px; font-weight: 500; }
+  .load-more button:hover:not(:disabled), .export-patch-btn:hover:not(:disabled) {
     background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
   }
-  .load-more button:disabled {
-    opacity: 0.5; cursor: default;
-  }
+  .load-more button:disabled { opacity: 0.5; cursor: default; }
+  .export-patch-btn:disabled { opacity: 0.45; cursor: default; }
   .load-more .end-marker {
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
   }
 
-  /* Files-toolbar view toggle (list ↔ inline diff) */
+  /* Files-toolbar view toggle (opens the commit diff in a native tab) */
   .view-toggle {
     margin-left: 0;
     display: inline-flex;
@@ -361,77 +344,6 @@ export function buildHistoryHtml(
     cursor: pointer; font-family: inherit; letter-spacing: 0;
   }
   .view-toggle button:first-child { border-left: 0; }
-  .view-toggle button.active {
-    background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
-    color: var(--vscode-button-foreground, var(--vscode-list-activeSelectionForeground));
-    cursor: default;
-  }
-
-  /* Export patch button on the Files Changed title bar */
-  .export-patch-btn {
-    margin-left: 0;
-    background: var(--vscode-button-secondaryBackground, transparent);
-    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-    border: 1px solid var(--vscode-panel-border);
-    padding: 2px 10px; border-radius: 3px;
-    font-size: 11px; line-height: 18px; font-weight: 500;
-    cursor: pointer; font-family: inherit;
-  }
-  .export-patch-btn:hover:not(:disabled) {
-    background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
-  }
-  .export-patch-btn:disabled { opacity: 0.45; cursor: default; }
-
-  /* ---- Inline side-by-side commit diff (double-click a commit) ---- */
-  .inline-diff .file { border-bottom: 8px solid var(--vscode-panel-border, #333); }
-  .inline-diff .file-head {
-    position: sticky; top: 0; z-index: 10;
-    display: flex; align-items: center; gap: 8px;
-    padding: 5px 12px;
-    background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-    border-top: 1px solid var(--vscode-panel-border);
-    border-bottom: 1px solid var(--vscode-panel-border);
-  }
-  .inline-diff .file-head .status {
-    flex: 0 0 auto; font-weight: 700; font-size: 11px;
-    border-radius: 3px; padding: 0 6px; line-height: 16px; color: #fff;
-  }
-  .inline-diff .file-head .status.A { background: #28a745; }
-  .inline-diff .file-head .status.M { background: #d29922; }
-  .inline-diff .file-head .status.D { background: #cb2431; }
-  .inline-diff .file-head .status.R { background: #6f42c1; }
-  .inline-diff .file-head .status.C { background: #6f42c1; }
-  .inline-diff .file-head .status.T { background: #586069; }
-  .inline-diff .file-head .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .inline-diff .file-head .dir { color: var(--vscode-descriptionForeground); }
-  .inline-diff .file-head .old { color: var(--vscode-descriptionForeground); }
-  .inline-diff .hunk { margin: 0; }
-  .inline-diff .hunk-head {
-    padding: 2px 12px; color: var(--vscode-descriptionForeground); font-size: 11px;
-    background: var(--vscode-sideBar-background, rgba(128,128,128,.06));
-    border-bottom: 1px solid var(--vscode-panel-border);
-  }
-  .inline-diff table.diff { border-collapse: collapse; width: 100%; table-layout: fixed; }
-  .inline-diff table.diff td { padding: 0; vertical-align: top; width: 50%; }
-  .inline-diff .line { display: flex; align-items: stretch; }
-  .inline-diff .gutter {
-    flex: 0 0 48px; width: 48px; min-width: 48px; text-align: right; padding: 0 6px;
-    color: var(--vscode-descriptionForeground); user-select: none;
-    border-right: 1px solid var(--vscode-panel-border); font-size: 11px;
-  }
-  .inline-diff .code {
-    flex: 1 1 auto; min-width: 0; padding: 0 8px; white-space: pre-wrap; word-break: break-all;
-    font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace); tab-size: 4; overflow-wrap: anywhere;
-    -webkit-user-select: text; user-select: text;
-  }
-  .inline-diff .col-left { border-right: 1px solid var(--vscode-panel-border); }
-  .inline-diff td.del .code { background: rgba(224,108,117,.16); }
-  .inline-diff td.del .gutter { background: rgba(224,108,117,.10); }
-  .inline-diff td.add .code { background: rgba(152,195,121,.16); }
-  .inline-diff td.add .gutter { background: rgba(152,195,121,.10); }
-  .inline-diff td.empty .code { background: rgba(128,128,128,.05); }
-  .inline-diff .bin { padding: 8px 12px; color: var(--vscode-descriptionForeground); font-style: italic; }
-  .inline-diff .empty-diff { padding: 14px 12px; color: var(--vscode-descriptionForeground); }
 </style>
 </head>
 <body>
@@ -439,25 +351,9 @@ export function buildHistoryHtml(
   <div class="toolbar">
     <span class="toolbar-title">${T('toolbar.title')}</span>
     <select class="branch-select" id="branch-select" title="${T('toolbar.branchTitle')}">
-      ${(() => {
-        // Top entry: the ref the user opened from (always shown, even if remote)
-        const opts: string[] = [];
-        const seen = new Set<string>();
-        opts.push(`<option value="${escapeHtml(ref)}"${scope === ref ? ' selected' : ''}>${escapeHtml(ref)}</option>`);
-        seen.add(ref);
-        for (const b of branches) {
-          if (seen.has(b)) { continue; }
-          seen.add(b);
-          opts.push(`<option value="${escapeHtml(b)}"${scope === b ? ' selected' : ''}>${escapeHtml(b)}</option>`);
-        }
-        opts.push(`<option value="${escapeHtml(allSentinel)}"${scope === allSentinel ? ' selected' : ''}>-- ALL --</option>`);
-        return opts.join('\n      ');
-      })()}
+      ${branchOptions}
     </select>
-    ${filePath ? (() => {
-        const short = filePath.split('/').pop() || filePath;
-        return `<span class="file-chip" title="${T('toolbar.fileChipTitle', escapeHtml(filePath))}"><span class="file-chip-pre">Path</span><span class="file-chip-label">${escapeHtml(short)}</span><button type="button" class="file-chip-clear" id="clear-file" title="${T('toolbar.fileChipClear')}" aria-label="${T('toolbar.fileChipClearAria')}">×</button></span>`;
-    })() : ''}
+    ${fileChip}
     <input type="search" class="history-search" id="history-search" placeholder="${T('toolbar.searchPlaceholder')}" autocomplete="off" spellcheck="false" />
   </div>
   <div id="history-grid">
@@ -527,46 +423,49 @@ export function buildHistoryHtml(
   // depending on the postMessage timing. The host may still push an updated
   // dict on language change, which simply overwrites this one.
   let i18n = ${JSON.stringify(getDict(lang))};
-  function t(key) { return i18n[key] ?? key; }
+  // Same {0}/{1} positional interpolation as the host-side t() in shared/i18n.
+  function t(key) {
+    let s = i18n[key] ?? key;
+    for (let i = 1; i < arguments.length; i++) { s = s.split('{' + (i - 1) + '}').join(String(arguments[i])); }
+    return s;
+  }
 
+  // Mirrors escapeHtml in src/shared/html.ts — kept inline because a webview
+  // script cannot import host modules; keep the two in sync.
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Static element refs — all live in the markup above except #clear-file,
+  // which renders only when a file scope is active.
   const commitsEl = document.getElementById('commits');
   const filesEl = document.getElementById('files');
   const infoEl = document.getElementById('commit-info');
-  // Keep the inline-diff file headers docked *below* the sticky files-toolbar
-  // (which shows the commit message) so a long message never overlaps the diff.
-  const filesToolbarEl = document.querySelector('.files-toolbar');
-  function syncToolbarHeight() {
-    if (filesToolbarEl) {
-      document.documentElement.style.setProperty('--toolbar-h', filesToolbarEl.offsetHeight + 'px');
-    }
-  }
-  syncToolbarHeight();
-  window.addEventListener('resize', syncToolbarHeight);
+  const topEl = document.querySelector('.top');
+  const bottomEl = document.querySelector('.bottom');
+  const topToolbarEl = document.querySelector('.top .toolbar');
+  const historyHeadEl = document.querySelector('.history-head');
+  const branchSelect = document.getElementById('branch-select');
+  const viewToggle = document.getElementById('view-toggle');
+  const exportPatchBtn = document.getElementById('export-patch');
+  const loadMoreEl = document.getElementById('load-more');
+  const searchInput = document.getElementById('history-search');
+  const splitter = document.getElementById('splitter');
+  const commitCtxMenu = document.getElementById('commit-ctx-menu');
+  const multiCtxMenu = document.getElementById('multi-ctx-menu');
+  const fileCtxMenu = document.getElementById('file-ctx-menu');
 
   // Keep the sticky commit-table header flush under the top toolbar.
   // The toolbar height varies (it can wrap), so hard-coding the header's
   // top value left a 1px gap above the header — measure it live instead.
   function syncHeaderTop() {
-    const tb = document.querySelector('.top .toolbar');
-    const head = document.querySelector('.history-head');
-    if (tb && head) {
-      head.style.top = (tb.offsetHeight) + 'px';
-    }
+    historyHeadEl.style.top = (topToolbarEl.offsetHeight) + 'px';
   }
   syncHeaderTop();
   window.addEventListener('resize', syncHeaderTop);
-  // Re-sync after the table is rebuilt by the host (e.g. scope change).
-  const historyRoot = document.getElementById('history');
-  const syncRoot = historyRoot || commitsEl;
-  if (syncRoot) {
-    const mo = new MutationObserver(syncHeaderTop);
-    mo.observe(syncRoot, { childList: true, subtree: true });
-  }
+
   let currentHash = null;
   let currentParent = null;
-  let currentDisplay = null;
-  let currentSubject = null;
-  let viewMode = 'list'; // 'list' (file picker) | 'diff' (inline side-by-side)
   let compareWorktree = false; // when true, file clicks diff the commit against the live working tree
 
   // File-scoped history: when the user switches the branch dropdown away from
@@ -582,19 +481,19 @@ export function buildHistoryHtml(
     return fileScoped && currentScope !== initialRef;
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
   function splitPath(p) {
     const i = p.lastIndexOf('/');
     if (i === -1) { return { dir: '', name: p }; }
     return { dir: p.slice(0, i + 1), name: p.slice(i + 1) };
   }
 
+  function showFilesEmpty(html) {
+    filesEl.innerHTML = '<div class="files-empty">' + html + '</div>';
+  }
+
   function renderFiles(files) {
     if (!files.length) {
-      filesEl.innerHTML = '<div class="files-empty">' + t('empty.noFiles') + '</div>';
+      showFilesEmpty(t('empty.noFiles'));
       return;
     }
     filesEl.innerHTML = files.map(f => {
@@ -610,70 +509,8 @@ export function buildHistoryHtml(
     }).join('');
   }
 
-  function setViewMode(mode) {
-    viewMode = mode;
-    const btns = document.querySelectorAll('#view-toggle button');
-    btns.forEach(b => b.classList.toggle('active', b.dataset.view === mode));
-  }
-
-  // Inline side-by-side diff for a single commit (double-click a row).
-  // Left column = parent (old), right column = commit (latest code); only changed hunks are shown.
-  function diffHunkRows(hunk) {
-    const rows = [];
-    let li = hunk.leftStart, ri = hunk.rightStart;
-    let lb = [], rb = [];
-    function flush() {
-      const n = Math.max(lb.length, rb.length);
-      for (let k = 0; k < n; k++) { rows.push({ l: lb[k] || null, r: rb[k] || null }); }
-      lb = []; rb = [];
-    }
-    for (const ln of hunk.lines) {
-      if (ln.type === ' ') { flush(); rows.push({ l: { no: li++, text: ln.text, kind: 'ctx' }, r: { no: ri++, text: ln.text, kind: 'ctx' } }); }
-      else if (ln.type === '-') { lb.push({ no: li++, text: ln.text, kind: 'del' }); }
-      else { rb.push({ no: ri++, text: ln.text, kind: 'add' }); }
-    }
-    flush();
-    return rows;
-  }
-  function renderDiffHunk(file, hunk) {
-    const rows = diffHunkRows(hunk);
-    const rowsHtml = rows.map(r => {
-      const L = r.l, R = r.r;
-      const td = (c, no, t) => '<td class="' + c + '"><div class="line"><div class="gutter">' + no + '</div><div class="code">' + escapeHtml(t) + '</div></div></td>';
-      if (L && R) { return '<tr>' + td(L.kind, L.no, L.text) + td(R.kind, R.no, R.text) + '</tr>'; }
-      if (L) { return '<tr>' + td(L.kind, L.no, L.text) + '<td class="empty"><div class="line"><div class="gutter"></div><div class="code"></div></div></td></tr>'; }
-      return '<tr><td class="empty"><div class="line"><div class="gutter"></div><div class="code"></div></div></td>' + td(R.kind, R.no, R.text) + '</tr>';
-    }).join('');
-    const isRename = (file.status === 'R' || file.status === 'C') && file.oldPath;
-    const head = isRename
-      ? escapeHtml(file.oldPath) + ' → ' + escapeHtml(file.path)
-      : '@@ -' + hunk.leftStart + ',' + hunk.leftCount + ' +' + hunk.rightStart + ',' + hunk.rightCount + ' @@';
-    return '<div class="hunk"><div class="hunk-head"><span>' + head + '</span></div><table class="diff">' + rowsHtml + '</table></div>';
-  }
-  function renderDiffFile(file) {
-    const sp = splitPath(file.path);
-    let body;
-    if (file.binary) { body = '<div class="bin">二进制文件不同（无法内联显示）</div>'; }
-    else if (!file.hunks.length) { body = '<div class="empty-diff">无文本差异</div>'; }
-    else { body = file.hunks.map(h => renderDiffHunk(file, h)).join(''); }
-    const rename = (file.status === 'R' || file.status === 'C') && file.oldPath
-      ? '<span class="old">' + escapeHtml(file.oldPath) + ' → </span>' : '';
-    return '<div class="file"><div class="file-head">' +
-      '<span class="status ' + escapeHtml(file.status) + '">' + escapeHtml(file.status) + '</span>' +
-      rename +
-      '<span class="name"><span class="dir">' + escapeHtml(sp.dir) + '</span>' + escapeHtml(sp.name) + '</span>' +
-      '</div>' + body + '</div>';
-  }
-  function renderCommitDiff(files) {
-    if (!files || !files.length) { filesEl.innerHTML = '<div class="files-empty">' + t('empty.noFiles') + '</div>'; return; }
-    filesEl.innerHTML = '<div class="inline-diff">' + files.map(renderDiffFile).join('') + '</div>';
-  }
-
   // Selection state — multi-select: plain click = single, ctrl/cmd+click = toggle, shift+click = contiguous range.
   let anchorRow = null; // last explicitly-clicked row, used as shift-range anchor
-  let rangeMode = false;
-  let rangeFrom = null; // older hash (left side of diff)
-  let rangeTo = null;   // newer hash (right side of diff)
 
   function allRows() {
     return Array.from(commitsEl.querySelectorAll('.commit-row'));
@@ -683,25 +520,30 @@ export function buildHistoryHtml(
   }
   function selectedRows() {
     // DOM order: index 0 = newest (topo-order).
-    return allRows().filter(r => r.classList.contains('selected'));
+    return Array.from(commitsEl.querySelectorAll('.commit-row.selected'));
+  }
+  // The multi-selection diff range (oldest → newest selected commit), or null
+  // when fewer than two rows are selected. Derived from the DOM so there is no
+  // duplicate selection state to reset.
+  function currentRange() {
+    const sel = selectedRows();
+    return sel.length > 1 ? { from: sel[sel.length - 1].dataset.hash, to: sel[0].dataset.hash } : null;
   }
   function clearSelection() {
     selectedRows().forEach(r => r.classList.remove('selected'));
-    rangeMode = false;
-    rangeFrom = null;
-    rangeTo = null;
+  }
+
+  function refreshExportButton() {
+    exportPatchBtn.disabled = !(currentHash || currentRange());
   }
 
   function updateDetailsFromSelection() {
     const sel = selectedRows();
-    rangeMode = false;
-    rangeFrom = null;
-    rangeTo = null;
     if (sel.length === 0) {
       currentHash = null;
       currentParent = null;
       infoEl.textContent = '';
-      filesEl.innerHTML = '<div class="files-empty">' + t('empty.selectCommit') + '</div>';
+      showFilesEmpty(t('empty.selectCommit'));
       refreshExportButton();
       return;
     }
@@ -709,15 +551,12 @@ export function buildHistoryHtml(
       const row = sel[0];
       currentHash = row.dataset.hash;
       currentParent = row.dataset.parent || '';
-      currentDisplay = row.dataset.display;
-      currentSubject = row.dataset.subject;
       let info = '<span class="hash">' + escapeHtml(row.dataset.display) + '</span>';
       if (compareWorktree) {
-        info += ' <span style="color:var(--vscode-charts-blue,#56b6c2);font-weight:600;">↔ 工作区</span>';
+        info += ' <span class="vs-worktree">' + t('info.vsWorktree') + '</span>';
       }
       infoEl.innerHTML = info;
-      setViewMode('list');
-      filesEl.innerHTML = '<div class="files-empty">' + t('state.loading') + '</div>';
+      showFilesEmpty(t('state.loading'));
       if (compareWorktree) {
         // List the files that differ between this commit and the working tree.
         vscode.postMessage({ type: 'selectCommitWorktree', hash: currentHash });
@@ -728,20 +567,16 @@ export function buildHistoryHtml(
       return;
     }
     // Multi-selection: show diff between the oldest and the newest selected commit.
-    const newerRow = sel[0];
-    const olderRow = sel[sel.length - 1];
-    rangeMode = true;
-    rangeFrom = olderRow.dataset.hash;
-    rangeTo   = newerRow.dataset.hash;
+    const range = currentRange();
     currentHash = null;
     currentParent = null;
-    const shortFrom = (olderRow.dataset.display || rangeFrom.slice(0, 8));
-    const shortTo   = (newerRow.dataset.display || rangeTo.slice(0, 8));
-      infoEl.innerHTML =
+    const shortFrom = (sel[sel.length - 1].dataset.display || range.from.slice(0, 8));
+    const shortTo   = (sel[0].dataset.display || range.to.slice(0, 8));
+    infoEl.innerHTML =
       '<span class="hash">' + escapeHtml(shortFrom) + '..' + escapeHtml(shortTo) + '</span>' +
-      sel.length + t('info.rangeDiff', sel.length);
-    filesEl.innerHTML = '<div class="files-empty">' + t('state.loading') + '</div>';
-    vscode.postMessage({ type: 'selectRange', fromHash: rangeFrom, toHash: rangeTo });
+      sel.length + t('info.rangeDiff');
+    showFilesEmpty(t('state.loading'));
+    vscode.postMessage({ type: 'selectRange', fromHash: range.from, toHash: range.to });
     refreshExportButton();
   }
 
@@ -783,54 +618,29 @@ export function buildHistoryHtml(
     updateDetailsFromSelection();
   });
 
-  // Files-toolbar toggle: list (file picker) ↔ open diff in a new tab.
-  const viewToggle = document.getElementById('view-toggle');
-  if (viewToggle) {
-    viewToggle.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-view]');
-      if (!btn) { return; }
-      const mode = btn.dataset.view;
-      if (mode === 'list') {
-        setViewMode('list');
-        if (currentHash && !rangeMode) {
-          filesEl.innerHTML = '<div class="files-empty">' + t('state.loading') + '</div>';
-          if (compareWorktree) {
-            vscode.postMessage({ type: 'selectCommitWorktree', hash: currentHash });
-          } else {
-            vscode.postMessage({ type: 'selectCommit', hash: currentHash, parent: currentParent });
-          }
-        }
-      } else if (mode === 'diff') {
-        if (!currentHash || rangeMode) { return; }
-        // Open the commit diff in its own tab instead of inline in this panel.
-        // When in worktree-compare mode, carry that flag through so the new tab
-        // diffs the commit against the live working tree (not its parent).
-        vscode.postMessage({ type: 'openCommitDiffTab', hash: currentHash, parent: currentParent, display: currentDisplay, subject: currentSubject, compareWorktree: compareWorktree });
-      }
-    });
-  }
+  // Files-toolbar toggle: open the selected commit's diff in its own tab.
+  viewToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-view="diff"]');
+    if (!btn || !currentHash || currentRange()) { return; }
+    // When in worktree-compare mode, carry that flag through so the new tab
+    // diffs the commit against the live working tree (not its parent).
+    vscode.postMessage({ type: 'openCommitDiffTab', hash: currentHash, parent: currentParent, compareWorktree: compareWorktree });
+  });
 
   // Export Patch button on the Files Changed title bar.
-  const exportPatchBtn = document.getElementById('export-patch');
-  function refreshExportButton() {
-    if (exportPatchBtn) {
-      exportPatchBtn.disabled = !(currentHash || (rangeMode && rangeFrom && rangeTo));
-    }
-  }
-  if (exportPatchBtn) {
-    exportPatchBtn.addEventListener('click', () => {
-      if (rangeMode && rangeFrom && rangeTo) {
-        vscode.postMessage({ type: 'exportPatch', hashes: [rangeFrom, rangeTo] });
-      } else if (currentHash) {
-        if (compareWorktree) {
-          // Working-tree comparison: export the diff between the commit and the live working tree.
-          vscode.postMessage({ type: 'exportWorktreePatch', hash: currentHash });
-        } else {
-          vscode.postMessage({ type: 'exportPatch', hashes: [currentHash] });
-        }
+  exportPatchBtn.addEventListener('click', () => {
+    const range = currentRange();
+    if (range) {
+      vscode.postMessage({ type: 'exportPatch', hashes: [range.from, range.to] });
+    } else if (currentHash) {
+      if (compareWorktree) {
+        // Working-tree comparison: export the diff between the commit and the live working tree.
+        vscode.postMessage({ type: 'exportWorktreePatch', hash: currentHash });
+      } else {
+        vscode.postMessage({ type: 'exportPatch', hashes: [currentHash] });
       }
-    });
-  }
+    }
+  });
 
   // File-row selection (single / ctrl-toggle / shift-range), mirroring the
   // commit-row model so files can be multi-selected and then right-clicked.
@@ -872,11 +682,12 @@ export function buildHistoryHtml(
     clearFileSelection();
     row.classList.add('selected');
     anchorFileRow = row;
-    if (rangeMode && rangeFrom && rangeTo) {
+    const range = currentRange();
+    if (range) {
       vscode.postMessage({
         type: 'openFile',
-        fromHash: rangeFrom,
-        toHash: rangeTo,
+        fromHash: range.from,
+        toHash: range.to,
         status: row.dataset.status,
         path: row.dataset.path,
         oldPath: row.dataset.old || undefined,
@@ -894,19 +705,25 @@ export function buildHistoryHtml(
     }
   });
 
-  const loadMoreEl = document.getElementById('load-more');
-  let loadedCount = commitsEl.querySelectorAll('.commit-row').length;
-
   function attachLoadMoreHandler() {
     const btn = document.getElementById('load-more-btn');
     if (!btn) { return; }
     btn.addEventListener('click', () => {
       btn.disabled = true;
       btn.textContent = t('state.loading');
-      vscode.postMessage({ type: 'loadMore', skip: loadedCount });
+      vscode.postMessage({ type: 'loadMore' });
     });
   }
   attachLoadMoreHandler();
+
+  // Rebuild the load-more area; the loaded count is read back from the table.
+  function renderLoadMore(hasMore) {
+    const loaded = commitsEl.querySelectorAll('.commit-row').length;
+    loadMoreEl.innerHTML = hasMore
+      ? '<button id="load-more-btn">' + t('btn.loadMore', loaded) + '</button>'
+      : '<span class="end-marker">' + t('loadMore.end', loaded) + '</span>';
+    if (hasMore) { attachLoadMoreHandler(); }
+  }
 
   window.addEventListener('message', (e) => {
     const m = e.data;
@@ -914,51 +731,30 @@ export function buildHistoryHtml(
       i18n = m.dict || {};
       return;
     }
-    if (m?.type === 'files' && m.hash === currentHash && !rangeMode && viewMode === 'list') {
+    // Commit files and range files render identically — only the guard differs.
+    const range = currentRange();
+    const commitFiles = m?.type === 'files' && m.hash === currentHash && !range;
+    const rangeFiles = m?.type === 'rangeFiles' && range && m.fromHash === range.from && m.toHash === range.to;
+    if (commitFiles || rangeFiles) {
       if (m.error) {
-        filesEl.innerHTML = '<div class="files-empty">' + escapeHtml(m.error) + '</div>';
-      } else {
-        renderFiles(m.files);
-      }
-    } else if (m?.type === 'commitDiff' && m.hash === currentHash && !rangeMode && viewMode === 'diff') {
-      if (m.error) {
-        filesEl.innerHTML = '<div class="files-empty">' + escapeHtml(m.error) + '</div>';
-      } else {
-        renderCommitDiff(m.files);
-      }
-    } else if (m?.type === 'rangeFiles' && rangeMode && m.fromHash === rangeFrom && m.toHash === rangeTo) {
-      if (m.error) {
-        filesEl.innerHTML = '<div class="files-empty">' + escapeHtml(m.error) + '</div>';
+        showFilesEmpty(escapeHtml(m.error));
       } else {
         renderFiles(m.files);
       }
     } else if (m?.type === 'moreCommits') {
-      // Append new rows (parse into a plain div so the div rows stay intact)
-      const tmp = document.createElement('div');
-      tmp.innerHTML = m.rowsHtml;
-      while (tmp.firstChild) {
-        commitsEl.appendChild(tmp.firstChild);
-      }
-      loadedCount += m.added;
+      commitsEl.insertAdjacentHTML('beforeend', m.rowsHtml);
       applySearchFilter();
-      // Replace load-more area content
-      if (m.hasMore) {
-        loadMoreEl.innerHTML = '<button id="load-more-btn">Load more (' + loadedCount + ' loaded)</button>';
-        attachLoadMoreHandler();
-      } else {
-        loadMoreEl.innerHTML = '<span class="end-marker">— end of history (' + loadedCount + ' commits) —</span>';
-      }
+      renderLoadMore(m.hasMore);
     } else if (m?.type === 'loadMoreError') {
       const btn = document.getElementById('load-more-btn');
       if (btn) {
         btn.disabled = false;
-        btn.textContent = 'Load more — retry (error: ' + (m.error || 'unknown') + ')';
+        btn.textContent = t('btn.loadMoreRetry', m.error || 'unknown');
       }
-      if (branchSelect) { branchSelect.disabled = false; }
+      branchSelect.disabled = false;
     } else if (m?.type === 'resetCommits') {
       // Scope changed — replace all rows, reset selection & file panel
       commitsEl.innerHTML = m.rowsHtml;
-      loadedCount = m.loadedCount;
       anchorRow = null;
       currentHash = null;
       currentParent = null;
@@ -969,35 +765,23 @@ export function buildHistoryHtml(
       clearSelection();
       refreshExportButton();
       infoEl.textContent = '';
-      filesEl.innerHTML = '<div class="files-empty">' + t('empty.selectCommit') + '</div>';
+      showFilesEmpty(t('empty.selectCommit'));
       // Sync dropdown to confirmed scope, re-enable it
-      if (branchSelect) {
-        if (branchSelect.value !== m.scope) { branchSelect.value = m.scope; }
-        branchSelect.disabled = false;
-      }
-      // Reset load-more area
-      if (m.hasMore) {
-        loadMoreEl.innerHTML = '<button id="load-more-btn">Load more (' + loadedCount + ' loaded)</button>';
-        attachLoadMoreHandler();
-      } else {
-        loadMoreEl.innerHTML = '<span class="end-marker">— end of history (' + loadedCount + ' commits) —</span>';
-      }
+      if (branchSelect.value !== m.scope) { branchSelect.value = m.scope; }
+      branchSelect.disabled = false;
+      renderLoadMore(m.hasMore);
       applySearchFilter();
+      syncHeaderTop();
       // Scroll to top of the table for the new scope
-      const topPane = document.querySelector('.top');
-      if (topPane) { topPane.scrollTop = 0; }
+      topEl.scrollTop = 0;
     }
   });
 
   // Branch dropdown — picks a local branch ref or the "-- ALL --" sentinel.
-  const branchSelect = document.getElementById('branch-select');
-  if (branchSelect) {
-    branchSelect.addEventListener('change', () => {
-      const newScope = branchSelect.value;
-      branchSelect.disabled = true;
-      vscode.postMessage({ type: 'setScope', scope: newScope });
-    });
-  }
+  branchSelect.addEventListener('change', () => {
+    branchSelect.disabled = true;
+    vscode.postMessage({ type: 'setScope', scope: branchSelect.value });
+  });
 
   // File-scope chip — clear the file filter and return to full branch history.
   const clearFileBtn = document.getElementById('clear-file');
@@ -1008,39 +792,28 @@ export function buildHistoryHtml(
   }
 
   // Search box — client-side filter over already-loaded commits.
-  const searchInput = document.getElementById('history-search');
   let searchQuery = '';
-  function applySearchFilter(rows) {
+  function applySearchFilter() {
     const q = searchQuery.trim().toLowerCase();
-    const targets = rows || commitsEl.querySelectorAll('.commit-row');
+    const targets = commitsEl.querySelectorAll('.commit-row');
     if (!q) {
       targets.forEach(tr => tr.classList.remove('filtered-out'));
       return;
     }
-    targets.forEach(tr => {
-      const hash    = (tr.dataset.hash    || '').toLowerCase();
-      const display = (tr.dataset.display || '').toLowerCase();
-      const subject = (tr.dataset.subject || '').toLowerCase();
-      const author  = (tr.dataset.author  || '').toLowerCase();
-      const match = hash.includes(q) || display.includes(q) || subject.includes(q) || author.includes(q);
-      tr.classList.toggle('filtered-out', !match);
-    });
+    // data-search is a pre-lowercased hash/display/subject/author haystack
+    // emitted by the host (graph.ts) — one attribute read per row.
+    targets.forEach(tr => tr.classList.toggle('filtered-out', !(tr.dataset.search || '').includes(q)));
   }
-  if (searchInput) {
-    searchInput.addEventListener('input', () => {
-      searchQuery = searchInput.value;
-      applySearchFilter();
-    });
-    searchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { searchInput.value = ''; searchQuery = ''; applySearchFilter(); }
-    });
-  }
+  searchInput.addEventListener('input', () => {
+    searchQuery = searchInput.value;
+    applySearchFilter();
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { searchInput.value = ''; searchQuery = ''; applySearchFilter(); }
+  });
 
   // Right-click context menus (commit rows + file rows)
-  const commitCtxMenu = document.getElementById('commit-ctx-menu');
-  const multiCtxMenu = document.getElementById('multi-ctx-menu');
-  const fileCtxMenu = document.getElementById('file-ctx-menu');
-  let ctxTarget = null; // { kind: 'commit'|'multi'|'file', ... }
+  let ctxTarget = null; // { kind: 'commit'|'multi'|'files', ... }
 
   function showCtxMenu(menu, x, y) {
     menu.style.display = 'block';
@@ -1142,16 +915,12 @@ export function buildHistoryHtml(
     }
     anchorFileRow = row;
     const sel = selectedFileRows();
-    const getItem = fileCtxMenu.querySelector('[data-action="getFile"]');
-    if (getItem) {
-      getItem.classList.toggle('disabled', !currentHash);
-      getItem.textContent = sel.length > 1
-        ? t('menu.getFiles', sel.length)
-        : t('menu.getFileOverwrite');
-    }
-    const hasCommit = !!currentHash;
-    fileCtxMenu.querySelectorAll('[data-action="compareWorktree"], [data-action="openFile"]')
-      .forEach(el => el.classList.toggle('disabled', !hasCommit));
+    const getFileItem = fileCtxMenu.querySelector('[data-action="getFile"]');
+    getFileItem.classList.toggle('disabled', !currentHash);
+    getFileItem.textContent = sel.length > 1
+      ? t('menu.getFiles', sel.length)
+      : t('menu.getFileOverwrite');
+    fileCtxMenu.querySelector('[data-action="compareWorktree"]').classList.toggle('disabled', !currentHash);
     ctxTarget = {
       kind: 'files',
       hash: currentHash || '',
@@ -1177,19 +946,6 @@ export function buildHistoryHtml(
         files: ctxTarget.files,
         compareWorktree: compareWorktree,
       });
-    } else if (action === 'openFile') {
-      // Open a native diff for each selected file (commit vs parent), like a
-      // double-click on a single file row.
-      for (const f of ctxTarget.files) {
-        vscode.postMessage({
-          type: 'openFile',
-          hash: ctxTarget.hash,
-          parent: currentParent || '',
-          path: f.path,
-          oldPath: f.oldPath,
-          status: f.status,
-        });
-      }
     } else if (action === 'compareWorktree') {
       // Compare each selected file against the live working-tree file.
       for (const f of ctxTarget.files) {
@@ -1206,9 +962,6 @@ export function buildHistoryHtml(
   });
 
   // Resizable splitter (vertical bar → left/right panes)
-  const splitter = document.getElementById('splitter');
-  const topEl = document.querySelector('.top');
-  const bottomEl = document.querySelector('.bottom');
   let dragging = false;
   splitter.addEventListener('mousedown', () => { dragging = true; document.body.style.cursor = 'col-resize'; });
   window.addEventListener('mouseup', () => {

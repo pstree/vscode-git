@@ -41,6 +41,8 @@ export default {
     'toolbar.exportPatchTitle': '导出所选提交的补丁',
     'toolbar.exportPatch': '导出补丁',
     'toolbar.viewDiff': '全部打开',
+    'toolbar.allScope': '-- 全部 --',
+    'toolbar.pathChip': '路径',
     'table.hash': '哈希',
     'table.message': '提交说明',
     'table.author': '作者',
@@ -51,11 +53,13 @@ export default {
     // Dynamic states
     'state.loading': '加载中…',
     'info.rangeDiff': ' 个提交已选中 — 最旧与最新之间的差异',
+    'info.vsWorktree': '↔ 工作区',
 
     'empty.selectCommit': '选择一个提交以查看其改动文件。',
     'empty.noFiles': '没有任何文件改动。',
     'empty.noBranch': '尚未选择分支。',
     'empty.rightClickHint': '在「Git 分支」视图中右键点击分支，选择「查看历史」即可在此渲染提交图。',
     'btn.loadMore': '加载更多（已加载 {0} 条）',
+    'btn.loadMoreRetry': '加载更多 — 重试（错误：{0}）',
     'diff.compareWorktreeFailed': '与工作区文件对比失败：{0}',
 };

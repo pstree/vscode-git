@@ -4,6 +4,7 @@
 // HTML builders never pull the `vscode` module into their dependency graph.
 
 /** Escape a string for safe inclusion in HTML text/attribute values. */
+const ESCAPE_MAP: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 export function escapeHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return s.replace(/[&<>"]/g, (ch) => ESCAPE_MAP[ch]);
 }

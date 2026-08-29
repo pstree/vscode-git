@@ -21,9 +21,16 @@ export function getDict(lang: Lang): Dict {
 // Host-side (Node) localization used when building static webview HTML inside
 // the extension process. Interpolates {0}, {1}, ... positional args.
 export function t(key: string, ...args: (string | number)[]): string {
-    const lang = resolveLang(vscode.env.language);
+    return makeT(resolveLang(vscode.env.language))(key, ...args);
+}
+
+// `t` pinned to a specific language, for builders that receive `lang` as a
+// parameter instead of reading vscode.env.language themselves.
+export function makeT(lang: Lang): (key: string, ...args: (string | number)[]) => string {
     const dict: Dict = dicts[lang];
-    let s = dict[key] ?? dicts.en[key] ?? key;
-    args.forEach((a, i) => { s = s.replace(new RegExp(`\\{${i}\\}`, 'g'), String(a)); });
-    return s;
+    return (key, ...args) => {
+        let s = dict[key] ?? dicts.en[key] ?? key;
+        args.forEach((a, i) => { s = s.replace(new RegExp(`\\{${i}\\}`, 'g'), String(a)); });
+        return s;
+    };
 }

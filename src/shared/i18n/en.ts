@@ -41,6 +41,8 @@ export default {
     'toolbar.exportPatchTitle': 'Export patch of the selected commit(s)',
     'toolbar.exportPatch': 'Export Patch',
     'toolbar.viewDiff': 'Open all',
+    'toolbar.allScope': '-- ALL --',
+    'toolbar.pathChip': 'Path',
     'table.hash': 'Hash',
     'table.message': 'Message',
     'table.author': 'Author',
@@ -51,11 +53,13 @@ export default {
     // Dynamic states
     'state.loading': 'Loading…',
     'info.rangeDiff': ' commits selected — diff between oldest and newest',
+    'info.vsWorktree': '↔ working tree',
 
     'empty.selectCommit': 'Select a commit to view its changed files.',
     'empty.noFiles': 'No files changed.',
     'empty.noBranch': 'No branch selected yet.',
     'empty.rightClickHint': 'Right-click a branch in the Branches view and choose View History to render its commit graph here.',
     'btn.loadMore': 'Load more ({0} loaded)',
+    'btn.loadMoreRetry': 'Load more — retry (error: {0})',
     'diff.compareWorktreeFailed': 'Failed to compare with working tree: {0}',
 };
