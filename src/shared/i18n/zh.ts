@@ -1,6 +1,7 @@
 export default {
     'branch.noUpstream': '{0} 尚未配置上游分支，请先设置上游。',
     'repo.noRemotes': '未配置任何远程仓库。',
+    'branch.current': '当前',
 
     // Commit context menu
     'menu.copyHash': '复制哈希',

@@ -62,10 +62,8 @@
     "commands": [
       { "command": "gitBranches.checkout",              "title": "%command.checkout%" },
       { "command": "gitBranches.checkoutAndRebase",     "title": "%command.checkoutAndRebase%" },
-      { "command": "gitBranches.update",                "title": "%command.update%" },
       { "command": "gitBranches.merge",                 "title": "%command.merge%" },
       { "command": "gitBranches.rebase",                "title": "%command.rebase%" },
-      { "command": "gitBranches.push",                  "title": "%command.push%" },
       { "command": "gitBranches.setUpstream",           "title": "%command.setUpstream%" },
       { "command": "gitBranches.deleteLocal",           "title": "%command.deleteLocal%" },
       { "command": "gitBranches.checkoutRemote",        "title": "%command.checkoutRemote%" },
@@ -84,8 +82,6 @@
       { "command": "gitBranches.fetchBranch",           "title": "%command.fetchBranch%", "icon": "$(sync)" },
       { "command": "gitBranches.fetchBranchPush",       "title": "%command.fetchBranchPush%", "icon": "$(arrow-up)" },
       { "command": "gitBranches.fetchBranchSpin",       "title": "%command.fetchBranchSpin%",             "icon": "$(sync~spin)" },
-      { "command": "gitBranches.hideRepository",        "title": "%command.hideRepository%" },
-      { "command": "gitBranches.showHiddenRepository",  "title": "%command.showHiddenRepository%", "icon": "$(eye)" },
       { "command": "gitBranches.refresh",               "title": "%command.refresh%",      "icon": "$(refresh)" },
       { "command": "gitBranches.stageCurrentFile",      "title": "%command.stageCurrentFile%" }
     ],
@@ -105,16 +101,6 @@
           "command": "gitBranches.createTag",
           "when": "view == gitBranches.tags",
           "group": "navigation@2"
-        },
-        {
-          "command": "gitBranches.showHiddenRepository",
-          "when": "view == gitBranches.branches || view == gitBranches.tags",
-          "group": "9_visibility@1"
-        },
-        {
-          "command": "gitBranches.hideRepository",
-          "when": "view == gitBranches.branches || view == gitBranches.tags",
-          "group": "9_visibility@2"
         }
       ],
       "view/item/context": [
@@ -164,16 +150,6 @@
 
 
         {
-          "command": "gitBranches.update",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
-          "group": "1_sync@1"
-        },
-        {
-          "command": "gitBranches.push",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
-          "group": "1_sync@2"
-        },
-        {
           "command": "gitBranches.setUpstream",
           "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
           "group": "1_sync@3"
@@ -195,11 +171,6 @@
           "group": "1_checkout@2"
         },
         {
-          "command": "gitBranches.update",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
-          "group": "2_integrate@1"
-        },
-        {
           "command": "gitBranches.merge",
           "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
           "group": "2_integrate@2"
@@ -213,11 +184,6 @@
           "command": "gitBranches.applyPatch",
           "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
           "group": "2_integrate@7"
-        },
-        {
-          "command": "gitBranches.push",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
-          "group": "3_sync@1"
         },
         {
           "command": "gitBranches.setUpstream",
@@ -264,12 +230,6 @@
           "command": "gitBranches.deleteTag",
           "when": "view == gitBranches.tags && viewItem == tag",
           "group": "3_destructive@1"
-        },
-
-        {
-          "command": "gitBranches.hideRepository",
-          "when": "(view == gitBranches.branches || view == gitBranches.tags) && viewItem == repository",
-          "group": "9_visibility@1"
         }
       ],
       "editor/context": [

@@ -7,7 +7,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { Branch } from '../gitApi';
 import type { RegisterCtx } from './context';
 import { confirm, triggerRefresh, withProgress } from '../shared/ui';
 import { execFileAsync, getGitPath, parseRemoteBranch, runGit, SHOW_MAX_BUFFER } from '../git/gitClient';
@@ -106,43 +105,6 @@ export function registerBranches(ctx: RegisterCtx): void {
         ctx.historyView?.refreshIfMatches(repo, name);
     });
 
-    reg('gitBranches.update', async (item?) => {
-        if (!item) { return; }
-        const isCurrent = item.repo.state.HEAD?.name === item.ref.name;
-
-        if (isCurrent) {
-            // Current branch: repo.state.HEAD.upstream is always reliable
-            if (!item.repo.state.HEAD?.upstream) {
-                vscode.window.showErrorMessage(`"${item.ref.name}" has no upstream configured. Use Set Upstream first.`);
-                return;
-            }
-            await withProgress(`Updating ${item.ref.name}...`, () => item.repo.pull());
-            return;
-        }
-
-        // Non-current branch: getBranches() may not populate upstream in all VS Code versions,
-        // so resolve it directly from git as a reliable fallback.
-        let upstreamRef: string;
-        try {
-            const { stdout } = await execFileAsync(
-                getGitPath(),
-                ['rev-parse', '--abbrev-ref', `${item.ref.name}@{upstream}`],
-                { cwd: item.repo.rootUri.fsPath }
-            );
-            upstreamRef = stdout.trim(); // e.g. "origin/feature-3.0.0"
-        } catch {
-            vscode.window.showErrorMessage(`"${item.ref.name}" has no upstream configured. Use Set Upstream first.`);
-            return;
-        }
-
-        const slashIdx = upstreamRef.indexOf('/');
-        const remote = upstreamRef.slice(0, slashIdx);
-        const remoteBranch = upstreamRef.slice(slashIdx + 1);
-        await withProgress(`Updating ${item.ref.name}...`, () =>
-            runGit(item.repo, ['fetch', remote, `${remoteBranch}:${item.ref.name}`])
-        );
-    });
-
     reg('gitBranches.checkout', async (item?) => {
         if (!item) { return; }
         await withProgress(`Checking out ${item.ref.name}...`, () =>
@@ -216,32 +178,6 @@ export function registerBranches(ctx: RegisterCtx): void {
                 }
             }
         });
-    });
-
-    reg('gitBranches.push', async (item?) => {
-        if (!item) { return; }
-        // Use the branch's configured upstream remote, or ask the user
-        let remoteName = (item.ref as Branch).upstream?.remote;
-        if (!remoteName) {
-            const remotes = item.repo.state.remotes;
-            if (remotes.length === 0) {
-                vscode.window.showErrorMessage('No remotes configured.');
-                return;
-            }
-            if (remotes.length === 1) {
-                remoteName = remotes[0].name;
-            } else {
-                const picked = await vscode.window.showQuickPick(
-                    remotes.map(r => ({ label: r.name, description: r.pushUrl ?? r.fetchUrl })),
-                    { placeHolder: 'Select remote to push to' }
-                );
-                if (!picked) { return; }
-                remoteName = picked.label;
-            }
-        }
-        await withProgress(`Pushing ${item.ref.name} to ${remoteName}...`, () =>
-            item.repo.push(remoteName, item.ref.name, true)
-        );
     });
 
     reg('gitBranches.setUpstream', async (item?) => {

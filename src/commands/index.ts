@@ -7,7 +7,7 @@
 // WebviewViewProvider and the commit-file virtual document provider.
 
 import * as vscode from 'vscode';
-import type { BranchItem, BranchesProvider, HiddenRepos } from '../branchTreeProvider';
+import type { BranchItem, BranchesProvider } from '../branchTreeProvider';
 import { GitApi } from '../gitApi';
 import { CommitFileContentProvider, COMMIT_FILE_SCHEME } from '../history/commitFileProvider';
 import { setRefresh } from '../shared/ui';
@@ -20,7 +20,6 @@ export function registerCommands(
     context: vscode.ExtensionContext,
     gitApi: GitApi,
     refresh: () => Promise<void>,
-    hiddenRepos: HiddenRepos,
     branchesProvider: BranchesProvider,
 ): void {
     setRefresh(refresh);
@@ -50,9 +49,9 @@ export function registerCommands(
     // extension would otherwise fail to register later commands silently.
     const groupErrors: string[] = [];
     for (const [name, fn] of [
-        ['branches', () => registerBranches({ context, gitApi, hiddenRepos, branchesProvider, historyView, reg })],
-        ['tags', () => registerTags({ context, gitApi, hiddenRepos, reg })],
-        ['global', () => registerGlobal({ context, gitApi, hiddenRepos, branchesProvider, reg })],
+        ['branches', () => registerBranches({ context, gitApi, branchesProvider, historyView, reg })],
+        ['tags', () => registerTags({ context, gitApi, reg })],
+        ['global', () => registerGlobal({ context, gitApi, branchesProvider, reg })],
         ['historyView', () => registerHistoryView(context, historyView, gitApi)],
     ] as const) {
         try {

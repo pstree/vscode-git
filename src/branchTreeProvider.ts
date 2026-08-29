@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Branch, GitApi, Ref, Repository } from './gitApi';
 import { execFileAsync, getGitPath } from './git/gitClient';
+import { t } from './shared/i18n';
 
 // ---- Tree node types ----
 
@@ -45,7 +46,7 @@ export class BranchItem extends vscode.TreeItem {
 
         if (isHead) {
             this.iconPath = new vscode.ThemeIcon('star-full', new vscode.ThemeColor('charts.yellow'));
-            this.description = syncDesc ? `current ${syncDesc}` : 'current';
+            this.description = syncDesc ? `${t('branch.current')} ${syncDesc}` : t('branch.current');
         } else if (itemContextValue === 'tag') {
             if (tagSyncStatus === 'unpublished') {
                 this.iconPath = new vscode.ThemeIcon('tag', new vscode.ThemeColor('charts.yellow'));
@@ -122,38 +123,6 @@ export class RepoItem extends vscode.TreeItem {
 
 type TreeNode = BranchItem | LocalGroupItem | RemoteSectionItem | RemoteGroupItem | RepoItem;
 
-// ---- Hidden-repos store (per-workspace) ----
-
-export class HiddenRepos {
-    private static readonly KEY = 'gitBranches.hiddenRepos';
-    private hidden: Set<string>;
-    private readonly _onDidChange = new vscode.EventEmitter<void>();
-    readonly onDidChange = this._onDidChange.event;
-
-    constructor(private memento: vscode.Memento) {
-        this.hidden = new Set(memento.get<string[]>(HiddenRepos.KEY, []));
-    }
-
-    isHidden(repo: Repository): boolean { return this.hidden.has(repo.rootUri.fsPath); }
-    hasAny(): boolean { return this.hidden.size > 0; }
-    paths(): string[] { return [...this.hidden]; }
-
-    async hide(repo: Repository): Promise<void> {
-        this.hidden.add(repo.rootUri.fsPath);
-        await this.persist();
-    }
-
-    async show(fsPath: string): Promise<void> {
-        this.hidden.delete(fsPath);
-        await this.persist();
-    }
-
-    private async persist(): Promise<void> {
-        await this.memento.update(HiddenRepos.KEY, [...this.hidden]);
-        this._onDidChange.fire();
-    }
-}
-
 // ---- Abstract base with repo lifecycle ----
 
 abstract class AbstractProvider implements vscode.TreeDataProvider<TreeNode>, vscode.Disposable {
@@ -166,17 +135,16 @@ abstract class AbstractProvider implements vscode.TreeDataProvider<TreeNode>, vs
     protected fireChange(): void { this._onDidChangeTreeData.fire(); }
 
     protected visibleRepos(): Repository[] {
-        return this.gitApi.repositories.filter(r => !this.hidden.isHidden(r));
+        return this.gitApi.repositories;
     }
 
     private repoListeners = new Map<Repository, vscode.Disposable>();
     private subscriptions: vscode.Disposable[] = [];
 
-    constructor(protected gitApi: GitApi, protected hidden: HiddenRepos) {
+    constructor(protected gitApi: GitApi) {
         this.subscriptions.push(
             gitApi.onDidOpenRepository(repo => this.attachRepo(repo)),
             gitApi.onDidCloseRepository(repo => this.detachRepo(repo)),
-            hidden.onDidChange(() => this._onDidChangeTreeData.fire()),
         );
         for (const repo of gitApi.repositories) {
             this.attachRepo(repo);

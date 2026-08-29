@@ -6,10 +6,8 @@
     "command.gitHistory": "Git 历史",
     "command.checkout": "检出",
     "command.checkoutAndRebase": "检出并变基到当前分支",
-    "command.update": "更新",
     "command.merge": "合并到当前分支...",
     "command.rebase": "变基到该分支",
-    "command.push": "推送",
     "command.setUpstream": "设置上游",
     "command.deleteLocal": "删除分支",
     "command.checkoutRemote": "检出为本地分支",
@@ -27,8 +25,6 @@
     "command.fetchBranch": "拉取 / 更新",
     "command.fetchBranchPush": "推送（无上游）",
     "command.fetchBranchSpin": "拉取中…",
-    "command.hideRepository": "隐藏仓库",
-    "command.showHiddenRepository": "显示隐藏的仓库...",
     "command.refresh": "刷新",
     "command.stageCurrentFile": "暂存文件"
 }

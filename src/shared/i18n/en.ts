@@ -1,6 +1,7 @@
 export default {
     'branch.noUpstream': '{0} has no upstream configured. Use Set Upstream first.',
     'repo.noRemotes': 'No remotes configured.',
+    'branch.current': 'current',
 
     // Commit context menu
     'menu.copyHash': 'Copy hash',

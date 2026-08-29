@@ -3,13 +3,12 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { RepoItem } from '../branchTreeProvider';
 import { runGit } from '../git/gitClient';
 import { findRepoForFile, pickRepo, triggerRefresh, withProgress } from '../shared/ui';
 import type { RegisterCtx } from './context';
 
 export function registerGlobal(ctx: RegisterCtx): void {
-    const { context, gitApi, hiddenRepos } = ctx;
+    const { context, gitApi } = ctx;
 
     context.subscriptions.push(vscode.commands.registerCommand('gitBranches.fetchAll', async () => {
         const repos = gitApi.repositories;
@@ -113,34 +112,5 @@ export function registerGlobal(ctx: RegisterCtx): void {
         await withProgress(`正在暂存 ${targetUri.fsPath.split(/[\\/]/).pop()} …`, () =>
             runGit(repo, ['add', '--', relPath])
         );
-    }));
-
-    // ---- Multi-repo visibility ----
-
-    context.subscriptions.push(vscode.commands.registerCommand('gitBranches.hideRepository', async (item?: RepoItem) => {
-        if (!item) {
-            const visible = gitApi.repositories.filter(r => !hiddenRepos.isHidden(r));
-            if (visible.length === 0) { return; }
-            const picked = await vscode.window.showQuickPick(
-                visible.map(r => ({ label: r.rootUri.path.split('/').pop() ?? r.rootUri.fsPath, description: r.rootUri.fsPath, repo: r })),
-                { placeHolder: 'Hide repository from Git Branches view' }
-            );
-            if (!picked) { return; }
-            await hiddenRepos.hide(picked.repo);
-            return;
-        }
-        await hiddenRepos.hide(item.repo);
-    }));
-
-    context.subscriptions.push(vscode.commands.registerCommand('gitBranches.showHiddenRepository', async () => {
-        const paths = hiddenRepos.paths();
-        if (paths.length === 0) {
-            vscode.window.showInformationMessage('No hidden repositories.');
-            return;
-        }
-        const items = paths.map(p => ({ label: p.split('/').pop() ?? p, description: p, fsPath: p }));
-        const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Show hidden repository', canPickMany: false });
-        if (!picked) { return; }
-        await hiddenRepos.show(picked.fsPath);
     }));
 }
