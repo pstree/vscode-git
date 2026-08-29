@@ -25,6 +25,6 @@
     "command.fetchBranch": "Pull / Update Branch",
     "command.fetchBranchPush": "Push (no upstream)",
     "command.fetchBranchSpin": "Pulling…",
-    "command.refresh": "Refresh",
+    "command.updateAll": "Update All",
     "command.stageCurrentFile": "Stage File"
 }

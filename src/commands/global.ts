@@ -3,8 +3,8 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { runGit } from '../git/gitClient';
-import { findRepoForFile, pickRepo, triggerRefresh, withProgress } from '../shared/ui';
+import { execFileAsync, getGitPath, runGit } from '../git/gitClient';
+import { findRepoForFile, pickRepo, withProgress } from '../shared/ui';
 import type { RegisterCtx } from './context';
 
 export function registerGlobal(ctx: RegisterCtx): void {
@@ -88,8 +88,60 @@ export function registerGlobal(ctx: RegisterCtx): void {
         }
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand('gitBranches.refresh', async () => {
-        await triggerRefresh();
+    context.subscriptions.push(vscode.commands.registerCommand('gitBranches.updateAll', async () => {
+        const repos = gitApi.repositories;
+        if (repos.length === 0) { return; }
+
+        // Only update each repository's current (checked-out) branch: pull its
+        // upstream into the working tree. Other local branches and remote
+        // branches are left untouched. Pull/merge conflicts stay in the working
+        // tree so the user can resolve them in the SCM changes area.
+        let updated = 0;
+        let conflicts = 0;
+        await withProgress('更新全部本地分支…', async () => {
+            for (const repo of repos) {
+                const head = repo.state.HEAD?.name;
+                if (!head) { continue; }
+
+                // Resolve the current branch's upstream as "remote/remoteBranch".
+                let upstream: string;
+                try {
+                    const { stdout } = await execFileAsync(
+                        getGitPath(),
+                        ['rev-parse', '--abbrev-ref', `${head}@{upstream}`],
+                        { cwd: repo.rootUri.fsPath }
+                    );
+                    upstream = stdout.trim();
+                } catch {
+                    continue; // no upstream — leave branch untouched
+                }
+                const slashIdx = upstream.indexOf('/');
+                const remote = upstream.slice(0, slashIdx);
+                const remoteBranch = upstream.slice(slashIdx + 1);
+
+                try {
+                    await runGit(repo, ['pull', '--no-edit', remote, remoteBranch]);
+                    updated++;
+                } catch (e: any) {
+                    // Pull produced conflict markers in the working tree — leave
+                    // them in place for manual resolution in the SCM changes area.
+                    const msg = String(e.stderr ?? e.message ?? e);
+                    if (/conflict/i.test(msg)) { conflicts++; }
+                    else { throw e; }
+                }
+            }
+            // Refresh the built-in Git SCM so pulled changes (and any conflict
+            // markers) appear in the changes area.
+            for (const repo of repos) { try { await repo.status(); } catch {} }
+        });
+
+        if (conflicts > 0) {
+            vscode.window.showWarningMessage(
+                `更新完成：${updated} 个当前分支已更新，${conflicts} 个存在冲突，请在源代码管理更改区中手动解决。`
+            );
+        } else {
+            vscode.window.showInformationMessage(`更新完成：${updated} 个当前分支已更新。`);
+        }
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand('gitBranches.stageCurrentFile', async (uri?: vscode.Uri) => {

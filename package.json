@@ -82,20 +82,15 @@
       { "command": "gitBranches.fetchBranch",           "title": "%command.fetchBranch%", "icon": "$(sync)" },
       { "command": "gitBranches.fetchBranchPush",       "title": "%command.fetchBranchPush%", "icon": "$(arrow-up)" },
       { "command": "gitBranches.fetchBranchSpin",       "title": "%command.fetchBranchSpin%",             "icon": "$(sync~spin)" },
-      { "command": "gitBranches.refresh",               "title": "%command.refresh%",      "icon": "$(refresh)" },
+      { "command": "gitBranches.updateAll",             "title": "%command.updateAll%",   "icon": "$(refresh)" },
       { "command": "gitBranches.stageCurrentFile",      "title": "%command.stageCurrentFile%" }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "gitBranches.createBranch",
-          "when": "view == gitBranches.branches",
-          "group": "navigation@1"
-        },
-        {
-          "command": "gitBranches.refresh",
+          "command": "gitBranches.updateAll",
           "when": "view == gitBranches.tags || view == gitBranches.branches",
-          "group": "navigation@3"
+          "group": "navigation@1"
         },
         {
           "command": "gitBranches.createTag",

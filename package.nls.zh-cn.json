@@ -25,6 +25,6 @@
     "command.fetchBranch": "拉取 / 更新",
     "command.fetchBranchPush": "推送（无上游）",
     "command.fetchBranchSpin": "拉取中…",
-    "command.refresh": "刷新",
+    "command.updateAll": "更新全部",
     "command.stageCurrentFile": "暂存文件"
 }
