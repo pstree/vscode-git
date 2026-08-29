@@ -215,7 +215,7 @@ export function buildHistoryHtml(
     cursor: default;
   }
   .pill-switch button:disabled { opacity: 0.6; cursor: wait; }
-  table { border-collapse: collapse; width: max-content; min-width: 100%; }
+  table { border-collapse: collapse; table-layout: fixed; width: 100%; }
   thead th {
     position: sticky; top: 38px; z-index: 9;
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
@@ -241,12 +241,12 @@ export function buildHistoryHtml(
   .col-graph::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, rgba(128,128,128,.3)); }
   #graph-th { max-width: 200px; }
 
-  .col-hash   { color: #e5c07b; font-weight: bold; min-width: 7ch; }
-  .col-refs   { min-width: 80px; max-width: 220px; }
+  .col-hash   { color: #e5c07b; font-weight: bold; width: 8%; overflow: hidden; text-overflow: ellipsis; }
+  .col-refs   { width: 10%; }
   .col-refs .refs-inner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .col-subject{ max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
-  .col-date   { color: var(--vscode-descriptionForeground); min-width: 100px; text-align: right; padding-right: 14px; }
-  .col-author { color: #61afef; min-width: 100px; }
+  .col-subject{ width: 45%; overflow: hidden; text-overflow: ellipsis; }
+  .col-date   { color: var(--vscode-descriptionForeground); width: 14%; text-align: left; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .col-author { color: #61afef; width: 10%; overflow: hidden; text-overflow: ellipsis; }
   .ref-pill {
     display: inline-flex; align-items: center; gap: 3px;
     padding: 0 5px; margin-right: 3px;
@@ -464,11 +464,11 @@ export function buildHistoryHtml(
     <thead>
       <tr>
         <th id="graph-th" style="min-width:${svgWidth + 16}px"></th>
-        <th>${T('table.hash')}</th>
-        <th>${T('table.message')}</th>
-        <th>${T('table.author')}</th>
-        <th style="text-align:right;padding-right:14px">${T('table.date')}</th>
-        <th>${T('table.refs')}</th>
+        <th class="col-hash">${T('table.hash')}</th>
+        <th class="col-subject">${T('table.message')}</th>
+        <th class="col-author">${T('table.author')}</th>
+        <th class="col-date">${T('table.date')}</th>
+        <th class="col-refs">${T('table.refs')}</th>
       </tr>
     </thead>
     <tbody id="commits">${rows}</tbody>
