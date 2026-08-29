@@ -65,7 +65,6 @@
       { "command": "gitBranches.update",                "title": "%command.update%" },
       { "command": "gitBranches.merge",                 "title": "%command.merge%" },
       { "command": "gitBranches.rebase",                "title": "%command.rebase%" },
-      { "command": "gitBranches.rename",                "title": "%command.rename%" },
       { "command": "gitBranches.push",                  "title": "%command.push%" },
       { "command": "gitBranches.setUpstream",           "title": "%command.setUpstream%" },
       { "command": "gitBranches.deleteLocal",           "title": "%command.deleteLocal%" },
@@ -180,11 +179,6 @@
           "group": "1_sync@3"
         },
         {
-          "command": "gitBranches.rename",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
-          "group": "3_manage@1"
-        },
-        {
           "command": "gitBranches.applyPatch",
           "when": "view == gitBranches.branches && viewItem =~ /^localBranchCurrent/",
           "group": "2_integrate@2"
@@ -229,11 +223,6 @@
           "command": "gitBranches.setUpstream",
           "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
           "group": "3_sync@2"
-        },
-        {
-          "command": "gitBranches.rename",
-          "when": "view == gitBranches.branches && viewItem =~ /^localBranch(NoUpstream)?$/",
-          "group": "4_manage@1"
         },
         {
           "command": "gitBranches.deleteLocal",

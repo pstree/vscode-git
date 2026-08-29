@@ -9,7 +9,6 @@
     "command.update": "更新",
     "command.merge": "合并到当前分支...",
     "command.rebase": "变基到该分支",
-    "command.rename": "重命名分支",
     "command.push": "推送",
     "command.setUpstream": "设置上游",
     "command.deleteLocal": "删除分支",

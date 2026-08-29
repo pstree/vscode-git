@@ -218,19 +218,6 @@ export function registerBranches(ctx: RegisterCtx): void {
         });
     });
 
-    reg('gitBranches.rename', async (item?) => {
-        if (!item) { return; }
-        const newName = await vscode.window.showInputBox({
-            prompt: 'New branch name',
-            value: item.ref.name,
-            validateInput: v => v.trim() ? undefined : 'Branch name cannot be empty',
-        });
-        if (!newName || newName === item.ref.name) { return; }
-        await withProgress(`Renaming branch...`, () =>
-            runGit(item.repo, ['branch', '-m', item.ref.name!, newName.trim()])
-        );
-    });
-
     reg('gitBranches.push', async (item?) => {
         if (!item) { return; }
         // Use the branch's configured upstream remote, or ask the user

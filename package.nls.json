@@ -9,7 +9,6 @@
     "command.update": "Update Branch",
     "command.merge": "Merge into Current...",
     "command.rebase": "Rebase onto This Branch",
-    "command.rename": "Rename Branch",
     "command.push": "Push",
     "command.setUpstream": "Set Upstream",
     "command.deleteLocal": "Delete Branch",
