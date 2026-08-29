@@ -15,7 +15,7 @@ import { findRepoForFile } from '../shared/ui';
 
 import { execFileAsync, getChangedFiles, getChangedFilesBetween, getChangedFilesVsWorktree, getCommitDiff, getFileFromCommit, getGitPath } from '../git/gitClient';
 import { CommitData, LANE_W, RowLayout, computeLayout, createLayoutState, renderCommitRows } from './graph';
-import { HistoryUiState, buildHistoryHtml, errorHistoryHtml, placeholderHistoryHtml, readHistoryUiState, writeHistoryUiState } from './historyHtml';
+import { buildHistoryHtml, errorHistoryHtml, placeholderHistoryHtml } from './historyHtml';
 import { openCommitFileDiff, openRangeFileDiff, openCompareWithWorktree } from './commitFileProvider';
 import { exportPatches, exportWorktreePatch, handleCommitAction } from './commitActions';
 
@@ -206,7 +206,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             this.loadedCount = first.length;
             const hasMore = first.length === HistoryViewProvider.PAGE_SIZE;
 
-            const initialUi = readHistoryUiState(this.context);
             const head = repo.state.HEAD;
             const isCurrentBranch = head?.name === this.fullRef;
             // `git reset <hash>` operates on the checked-out branch regardless of
@@ -216,7 +215,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             view.webview.html = buildHistoryHtml(
                 first, firstLayouts, this.fullRef, view.webview.cspSource,
                 this.currentSvgWidth, hasMore, this.scope, branches,
-                HistoryViewProvider.ALL_SENTINEL, initialUi, allowReset, this.filePath,
+                HistoryViewProvider.ALL_SENTINEL, allowReset, this.filePath,
                 resolveLang(vscode.env.language),
             );
         } catch (e: any) {
@@ -371,15 +370,6 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                     type: 'loadMoreError',
                     error: String(e.stderr ?? e.message ?? e).trim(),
                 });
-            }
-        } else if (msg?.type === 'saveUiState') {
-            const patch = msg.patch ?? {};
-            const sanitized: Partial<HistoryUiState> = {};
-            if (typeof patch.bottomFlex === 'string') {
-                sanitized.bottomFlex = patch.bottomFlex;
-            }
-            if (Object.keys(sanitized).length > 0) {
-                await writeHistoryUiState(this.context, sanitized);
             }
         } else if (msg?.type === 'openFileHistory') {
             // Re-scope this same docked view to a single file's history.

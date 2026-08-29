@@ -14,19 +14,6 @@ import { CommitData, renderCommitRows, RowLayout } from './graph';
 const baseCsp = (cspSource: string) => `default-src 'none'; style-src ${cspSource} 'unsafe-inline';`;
 const htmlLangOf = (lang: Lang) => (lang === 'zh' ? 'zh-CN' : 'en');
 
-export interface HistoryUiState {
-    bottomFlex?: string; // CSS flex-basis value e.g. "240px"
-}
-
-const HISTORY_UI_STATE_KEY = 'gitBranches.historyUiState';
-export function readHistoryUiState(context: vscode.ExtensionContext): HistoryUiState {
-    return context.workspaceState.get<HistoryUiState>(HISTORY_UI_STATE_KEY, {});
-}
-export function writeHistoryUiState(context: vscode.ExtensionContext, patch: Partial<HistoryUiState>): Thenable<void> {
-    const current = readHistoryUiState(context);
-    return context.workspaceState.update(HISTORY_UI_STATE_KEY, { ...current, ...patch });
-}
-
 // Shown in the bottom-panel history view before any branch has been selected.
 export function placeholderHistoryHtml(cspSource: string, lang: Lang = 'en'): string {
     const t = makeT(lang);
@@ -65,7 +52,7 @@ body {
 export function buildHistoryHtml(
     commits: CommitData[], layouts: RowLayout[], ref: string, cspSource: string,
     svgWidth: number, hasMore: boolean, scope: string, branches: string[],
-    allSentinel: string, ui: HistoryUiState, allowReset: boolean, filePath: string | undefined,
+    allSentinel: string, allowReset: boolean, filePath: string | undefined,
     lang: Lang,
 ): string {
     const rows = renderCommitRows(commits, layouts, svgWidth);
@@ -111,7 +98,7 @@ export function buildHistoryHtml(
   }
   .splitter:hover { background: var(--vscode-focusBorder, #007fd4); }
   .bottom {
-    flex: 0 0 25%; min-width: 100px; max-width: 70%;
+    flex: 0 0 30%; min-width: 100px; max-width: 70%;
     display: flex; flex-direction: column;
     overflow: hidden;
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
@@ -373,7 +360,7 @@ export function buildHistoryHtml(
   </div>
 </div>
 <div class="splitter" id="splitter"></div>
-<div class="bottom"${ui.bottomFlex ? ` style="flex-basis:${escapeHtml(ui.bottomFlex)};"` : ''}>
+<div class="bottom">
   <div class="files-toolbar">
     <span>${T('toolbar.filesChanged')}</span>
     <span class="commit-info" id="commit-info"></span>
@@ -967,9 +954,6 @@ export function buildHistoryHtml(
   window.addEventListener('mouseup', () => {
     if (dragging) {
       dragging = false; document.body.style.cursor = '';
-      // Persist final splitter position
-      const flex = bottomEl.style.flexBasis;
-      if (flex) { vscode.postMessage({ type: 'saveUiState', patch: { bottomFlex: flex } }); }
     }
   });
   window.addEventListener('mousemove', (e) => {
