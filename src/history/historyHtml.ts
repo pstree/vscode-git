@@ -7,8 +7,8 @@
 
 import * as vscode from 'vscode';
 import { escapeHtml } from '../shared/html';
-import { getDict, Lang, resolveLang, t } from '../shared/i18n';
-import { CommitData, RowLayout, renderCommitRows } from './graph';
+import { getDict, Lang, resolveLang } from '../shared/i18n';
+import { CommitData, renderCommitRows, RowLayout } from './graph';
 
 export interface HistoryUiState {
     bottomFlex?: string; // CSS flex-basis value e.g. "240px"
@@ -100,7 +100,7 @@ export function buildHistoryHtml(
   }
   .splitter:hover { background: var(--vscode-focusBorder, #007fd4); }
   .bottom {
-    flex: 0 0 30%; min-width: 220px; max-width: 70%;
+    flex: 0 0 25%; min-width: 100px; max-width: 70%;
     display: flex; flex-direction: column;
     overflow: hidden;
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
