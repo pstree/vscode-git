@@ -1,8 +1,6 @@
 // Global toolbar / multi-repo-visibility commands. These are not tied to a
 // branch/tag tree node, so they register directly on the extension context.
 
-import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { RepoItem } from '../branchTreeProvider';
@@ -49,65 +47,45 @@ export function registerGlobal(ctx: RegisterCtx): void {
         const repo = repos.length === 1 ? repos[0] : await pickRepo(repos);
         if (!repo) { return; }
 
-        // Choose the patch source: a file on disk, or the current clipboard contents.
-        const source = await vscode.window.showQuickPick(
-            [
-                { label: '选择补丁文件…', description: '从磁盘选择 .patch / .diff 文件', value: 'file' as const },
-                { label: '从剪贴板粘贴', description: '使用当前剪贴板中的补丁内容', value: 'clipboard' as const },
-            ],
-            { placeHolder: '补丁来源' }
-        );
-        if (!source) { return; }
+        // Always apply from a patch file on disk. The user opens the file picker directly.
+        const picked = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+            title: '选择要应用的补丁文件',
+            defaultUri: repo.rootUri,
+        });
+        if (!picked || picked.length === 0) { return; }
+        const patchPath = picked[0].fsPath;
 
-        let patchPath: string | undefined;
-        if (source.value === 'file') {
-            const picked = await vscode.window.showOpenDialog({
-                canSelectMany: false,
-                filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
-                title: '选择要应用的补丁文件',
-                defaultUri: repo.rootUri,
-            });
-            if (!picked || picked.length === 0) { return; }
-            patchPath = picked[0].fsPath;
-        } else {
-            const clip = await vscode.env.clipboard.readText();
-            if (!clip.trim()) {
-                vscode.window.showErrorMessage('剪贴板为空，没有可应用的补丁内容。');
-                return;
-            }
-            patchPath = path.join(os.tmpdir(), `git-branches-patch-${Date.now()}.patch`);
-            await fs.promises.writeFile(patchPath, clip, 'utf8');
-        }
-
-        // Choose how to apply: plain apply, 3-way merge on conflict, or as a commit (git am).
-        const mode = await vscode.window.showQuickPick(
-            [
-                { label: 'git apply', description: '直接应用，遇冲突则整体拒绝（不修改工作区）', value: 'apply' as const },
-                { label: 'git apply --3way', description: '冲突时尝试三方合并', value: '3way' as const },
-                { label: 'git am', description: '按邮件格式补丁应用为提交（format-patch 输出）', value: 'am' as const },
-            ],
-            { placeHolder: '选择应用方式' }
-        );
-        if (!mode) {
-            if (source.value === 'clipboard' && patchPath) { try { await fs.promises.unlink(patchPath); } catch {} }
-            return;
-        }
-
-        const args = mode.value === 'am'
-            ? ['am', patchPath]
-            : (mode.value === '3way' ? ['apply', '--3way', patchPath] : ['apply', patchPath]);
+        // `git apply --3way`: on conflict it writes conflict markers into the working
+        // tree (and non-conflicting hunks are applied), so the changes are left in the
+        // SCM file-changes area for the user to resolve there. No `git am` — we never
+        // create a commit automatically.
+        const args = ['apply', '--3way', patchPath];
 
         try {
-            const result = await withProgress('正在应用补丁…', () => runGit(repo, args));
+            const result = await withProgress('正在应用补丁…', async () => {
+                try {
+                    return await runGit(repo, args);
+                } catch (e: any) {
+                    // git apply --3way 遇冲突会以非零退出码报错，但冲突/合并后的内容
+                    // 已经写入工作区，不应硬失败。
+                    const msg = String(e.stderr ?? e.message ?? e);
+                    if (!/conflict/i.test(msg)) { throw e; }
+                    return undefined;
+                }
+            });
+            // 刷新内置 Git SCM，让应用/冲突产生的文件变更出现在更改区。
+            await repo.status().catch(() => {});
             if (result !== undefined) {
-                vscode.window.showInformationMessage(
-                    mode.value === 'am' ? '补丁已应用为一个提交。' : '补丁已应用到工作区。'
+                vscode.window.showInformationMessage('补丁已应用到工作区。');
+            } else {
+                vscode.window.showWarningMessage(
+                    '补丁存在冲突，已应用无冲突的部分并把冲突标记写入工作区，请在源代码管理更改区中手动解决。'
                 );
             }
-        } finally {
-            if (source.value === 'clipboard' && patchPath) {
-                try { await fs.promises.unlink(patchPath); } catch {}
-            }
+        } catch (e: any) {
+            vscode.window.showErrorMessage(String(e.stderr ?? e.message ?? e).trim());
         }
     }));
 

@@ -45,6 +45,9 @@ export interface Repository {
     createBranch(name: string, checkout: boolean, ref?: string): Promise<void>;
     getBranches(query: { remote?: boolean; pattern?: string }): Promise<Branch[]>;
     getRefs(query: { pattern?: string; contains?: string; count?: number }): Promise<Ref[]>;
+    // Re-runs `git status` and notifies the built-in Git SCM so its file-changes
+    // view refreshes. Exists in the implementation but not the official typed surface.
+    status(): Promise<void>;
     // Methods available via cast to any (exist in implementation but not official typed surface)
     // renameBranch(name: string, newName: string): Promise<void>
     // tag(name: string, upstream?: string, message?: string): Promise<void>
