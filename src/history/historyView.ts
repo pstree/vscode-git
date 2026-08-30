@@ -445,16 +445,31 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             if (hash && files.length > 0) {
                 const leftSource = compareWorktree ? hash : (parent || hash);
                 const done: string[] = [];
+                const removed: string[] = [];
                 const skipped: string[] = [];
                 try {
                     for (const f of files) {
                         const p = String(f?.path ?? '');
                         if (!p) { continue; }
                         const status = String(f?.status ?? '');
-                        // 'A' (added on the right/new side) means the left/old version
-                        // doesn't exist — there's nothing to GET. Restoring "absent"
-                        // would mean deleting the working file (destructive), so skip.
-                        if (status === 'A') {
+                        if (compareWorktree) {
+                            // Worktree-compare letters already describe the GET alignment
+                            // action (see getChangedFilesVsWorktree): 'D' = present only
+                            // in the working tree → delete it so the tree matches the commit;
+                            // anything else ('A', 'M', 'R', 'C') = present only in / differs
+                            // from the commit → restore from the commit.
+                            if (status === 'D') {
+                                // Permanently delete the worktree-only file (no trash).
+                                await vscode.workspace.fs.delete(
+                                    vscode.Uri.file(path.join(repo.rootUri.fsPath, p)),
+                                    { recursive: false, useTrash: false }
+                                );
+                                removed.push(p);
+                                continue;
+                            }
+                        } else if (status === 'A') {
+                            // Normal mode (commit vs parent): 'A' was added on the commit's
+                            // side, so its parent version doesn't exist — nothing to restore.
                             skipped.push(p);
                             continue;
                         }
@@ -467,6 +482,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                     if (done.length > 0) {
                         const label = done.length === 1 ? `"${done[0]}"` : `${done.length} files`;
                         vscode.window.showInformationMessage(`Got ${label} — local file(s) overwritten.`);
+                    }
+                    if (removed.length > 0) {
+                        const label = removed.length === 1 ? `"${removed[0]}"` : `${removed.length} files`;
+                        vscode.window.showInformationMessage(`Removed ${label} (only in working tree).`);
                     }
                     if (skipped.length > 0) {
                         vscode.window.showInformationMessage(
