@@ -287,7 +287,7 @@ export function buildHistoryHtml(
   .file-row .status.R { background: #6f42c1; }
   .file-row .status.C { background: #6f42c1; }
   .file-row .status.T { background: #586069; }
-  .file-row .dir  { color: var(--vscode-descriptionForeground); }
+  .file-row .dir  { color: var(--vscode-descriptionForeground); font-size: 11px; margin-left: 2px; }
   .file-row .rename-from { color: var(--vscode-descriptionForeground); margin-right: 4px; }
 
   .load-more {
@@ -491,7 +491,7 @@ export function buildHistoryHtml(
       return '<div class="file-row" data-path="' + escapeHtml(f.path) + '" data-old="' + escapeHtml(f.oldPath || '') + '" data-status="' + escapeHtml(f.status) + '">' +
         '<span class="status ' + escapeHtml(f.status) + '">' + escapeHtml(f.status) + '</span>' +
         rename +
-        '<span class="path"><span class="dir">' + escapeHtml(sp.dir) + '</span>' + escapeHtml(sp.name) + '</span>' +
+        '<span class="path">' + escapeHtml(sp.name) + '<span class="dir">' + escapeHtml(sp.dir) + '</span></span>' +
       '</div>';
     }).join('');
   }
