@@ -3,7 +3,7 @@
 import * as vscode from 'vscode';
 import { Repository } from '../gitApi';
 import type { RegisterCtx } from './context';
-import { confirm, pickRepo, withProgress } from '../shared/ui';
+import { confirm, pickRepoOrSingle, withProgress } from '../shared/ui';
 import { runGit } from '../git/gitClient';
 
 async function pickRef(repo: Repository): Promise<string | undefined> {
@@ -74,9 +74,7 @@ export function registerTags(ctx: RegisterCtx): void {
     });
 
     reg('gitBranches.createTag', async () => {
-        const repos = gitApi.repositories;
-        if (repos.length === 0) { return; }
-        const repo = repos.length === 1 ? repos[0] : await pickRepo(repos);
+        const repo = await pickRepoOrSingle(gitApi.repositories);
         if (!repo) { return; }
 
         const name = await vscode.window.showInputBox({

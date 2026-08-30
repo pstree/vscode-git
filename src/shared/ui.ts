@@ -16,6 +16,15 @@ export async function pickRepo(repos: Repository[]): Promise<Repository | undefi
 }
 
 /**
+ * Use the lone open repository directly, otherwise ask the user to pick one.
+ * Returns `undefined` when there are no repos (callers short-circuit).
+ */
+export async function pickRepoOrSingle(repos: Repository[]): Promise<Repository | undefined> {
+    if (repos.length === 0) { return undefined; }
+    return repos.length === 1 ? repos[0] : await pickRepo(repos);
+}
+
+/**
  * Find the open repository that contains `uri`. For nested repos the deepest
  * (longest root) match wins. Case-folded to behave on case-insensitive systems.
  */
@@ -34,6 +43,11 @@ export function findRepoForFile(repos: Repository[], uri: vscode.Uri): Repositor
 export async function confirm(message: string, confirmLabel: string): Promise<boolean> {
     const result = await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel);
     return result === confirmLabel;
+}
+
+/** Normalize an arbitrary thrown value (child-process error, Error, or value) into a one-line message. */
+export function errText(e: any): string {
+    return String(e.stderr ?? e.message ?? e).trim();
 }
 
 // The refresh callback is wired by registerCommands and invoked by `withProgress`

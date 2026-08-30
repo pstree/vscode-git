@@ -4,12 +4,10 @@
 // the shared `reg` helper. Git I/O goes through `../git/gitClient`; user prompts
 // through `../shared/ui`.
 
-import * as fs from 'fs';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import type { RegisterCtx } from './context';
-import { confirm, triggerRefresh, withProgress } from '../shared/ui';
-import { execFileAsync, getGitPath, parseRemoteBranch, runGit, SHOW_MAX_BUFFER } from '../git/gitClient';
+import { confirm, errText, triggerRefresh, withProgress } from '../shared/ui';
+import { execFileAsync, getGitPath, parseRemoteBranch, runGit } from '../git/gitClient';
 
 export function registerBranches(ctx: RegisterCtx): void {
     const { reg } = ctx;
@@ -168,7 +166,7 @@ export function registerBranches(ctx: RegisterCtx): void {
             try {
                 await runGit(item.repo, ['rebase', currentBranch]);
             } catch (e: any) {
-                const msg = String(e.stderr ?? e.message ?? e);
+                const msg = errText(e);
                 if (msg.includes('conflict') || msg.includes('CONFLICT')) {
                     vscode.window.showWarningMessage(
                         'Rebase has conflicts. Resolve them, then run "git rebase --continue". To cancel: "git rebase --abort".'
@@ -217,11 +215,11 @@ export function registerBranches(ctx: RegisterCtx): void {
                     await item.repo.deleteBranch(item.ref.name!, false);
                     await triggerRefresh();
                 } catch (e: any) {
-                    const msg = String(e.stderr ?? e.message ?? e);
+                    const msg = errText(e);
                     if (msg.includes('not fully merged')) {
                         notFullyMerged = true;
                     } else {
-                        vscode.window.showErrorMessage(msg.trim());
+                        vscode.window.showErrorMessage(msg);
                     }
                 }
             }
@@ -280,11 +278,11 @@ export function registerBranches(ctx: RegisterCtx): void {
                     await runGit(item.repo, ['push', remote, '--delete', branch]);
                     await triggerRefresh();
                 } catch (e: any) {
-                    const msg = String(e.stderr ?? e.message ?? e);
+                    const msg = errText(e);
                     if (msg.includes('remote ref does not exist')) {
                         alreadyGone = true;
                     } else {
-                        vscode.window.showErrorMessage(msg.trim());
+                        vscode.window.showErrorMessage(msg);
                     }
                 }
             }

@@ -12,6 +12,17 @@ import { Repository } from '../gitApi';
 import { execFileAsync, getGitPath, runGit } from '../git/gitClient';
 import { confirm, triggerRefresh, withProgress } from '../shared/ui';
 
+// Ask the user how to finish after writing a patch file: open it, reveal it in
+// the OS, or just dismiss the notification.
+async function offerPatchFile(outFile: string, message: string): Promise<void> {
+    const choice = await vscode.window.showInformationMessage(message, 'Open File', 'Reveal');
+    if (choice === 'Open File') {
+        await vscode.window.showTextDocument(vscode.Uri.file(outFile));
+    } else if (choice === 'Reveal') {
+        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outFile));
+    }
+}
+
 export async function exportPatches(repo: Repository, hashes: string[], filePath?: string): Promise<void> {
     if (hashes.length === 0) { return; }
 
@@ -51,18 +62,12 @@ export async function exportPatches(repo: Repository, hashes: string[], filePath
             );
             parts.push(stdout.trimEnd());
         }
+        // NOTE: keep the interactive "Open File / Reveal" prompt OUT of the
+        // progress callback — a modal info message would await the user's click
+        // and leave the progress toast pinned until they answer.
         await fs.promises.writeFile(outFile, parts.join('\n\n') + '\n', 'utf8');
-
-        const choice = await vscode.window.showInformationMessage(
-            `Exported ${ordered.length} commit(s) into ${path.basename(outFile)}`,
-            'Open File', 'Reveal'
-        );
-        if (choice === 'Open File') {
-            await vscode.window.showTextDocument(vscode.Uri.file(outFile));
-        } else if (choice === 'Reveal') {
-            await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outFile));
-        }
     });
+    await offerPatchFile(outFile, `Exported ${ordered.length} commit(s) into ${path.basename(outFile)}`);
 }
 
 /**
@@ -91,17 +96,8 @@ export async function exportWorktreePatch(repo: Repository, hash: string, filePa
             { cwd: repo.rootUri.fsPath, maxBuffer: 64 * 1024 * 1024 }
         );
         await fs.promises.writeFile(outFile, stdout, 'utf8');
-
-        const choice = await vscode.window.showInformationMessage(
-            `Exported working-tree diff vs ${shortHash} into ${path.basename(outFile)}`,
-            'Open File', 'Reveal'
-        );
-        if (choice === 'Open File') {
-            await vscode.window.showTextDocument(vscode.Uri.file(outFile));
-        } else if (choice === 'Reveal') {
-            await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outFile));
-        }
     });
+    await offerPatchFile(outFile, `Exported working-tree diff vs ${shortHash} into ${path.basename(outFile)}`);
 }
 
 export async function handleCommitAction(repo: Repository, msg: any): Promise<void> {

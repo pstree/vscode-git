@@ -155,6 +155,17 @@ export function parseUnifiedDiff(stdout: string): Map<string, CompareFile> {
 
     const hunkRe = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
+    // (Re)open a file as the current one so following hunks attach to it. An
+    // empty path or "/dev/null" (added/deleted file) leaves the current file
+    // unchanged, which the caller keeps using.
+    function openFile(p: string): void {
+        if (!p || p === '/dev/null') { return; }
+        const existing = files.get(p);
+        current = existing ?? { status: 'M', path: p, binary: false, hunks: [] };
+        if (!existing) { files.set(p, current); }
+        currentHunk = null;
+    }
+
     for (const raw of lines) {
         if (raw.startsWith('diff --git')) {
             // Reset; actual path comes from the `+++ ` line or rename-to.
@@ -178,28 +189,11 @@ export function parseUnifiedDiff(stdout: string): Map<string, CompareFile> {
             }
             continue;
         }
-        if (raw.startsWith('--- ')) {
-            // e.g. "--- a/src/foo.ts"  or "--- /dev/null" (added file)
-            const m = raw.match(/^--- (?:a\/)?(.+)$/);
-            const p = m ? m[1] : '';
-            if (p && p !== '/dev/null') {
-                const existing = files.get(p);
-                current = existing ?? { status: 'M', path: p, binary: false, hunks: [] };
-                if (!existing) { files.set(p, current); }
-                currentHunk = null;
-            }
-            continue;
-        }
-        if (raw.startsWith('+++ ')) {
-            // e.g. "+++ b/src/foo.ts"  or "+++ /dev/null" (deleted file → use the --- path)
-            const m = raw.match(/^\+\+\+ (?:b\/)?(.+)$/);
-            const p = m ? m[1] : '';
-            if (p && p !== '/dev/null') {
-                const existing = files.get(p);
-                current = existing ?? { status: 'M', path: p, binary: false, hunks: [] };
-                if (!existing) { files.set(p, current); }
-                currentHunk = null;
-            }
+        if (raw.startsWith('--- ') || raw.startsWith('+++ ')) {
+            // Parse the file path ("--- a/…" / "+++ b/…", or "/dev/null" for
+            // added/deleted files) and (re)open it as the current file.
+            const prefix = raw.startsWith('--- ') ? '--- a/' : '+++ b/';
+            openFile(raw.startsWith(prefix) ? raw.slice(prefix.length) : '');
             continue;
         }
         if (raw.startsWith('Binary files')) {

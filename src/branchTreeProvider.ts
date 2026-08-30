@@ -36,9 +36,8 @@ export class BranchItem extends vscode.TreeItem {
         // Build ahead/behind indicator for local branches that have an upstream
         let syncDesc = '';
         if (itemContextValue === 'localBranch') {
-            const branch = ref as Branch;
-            const ahead  = branch.ahead  ?? 0;
-            const behind = branch.behind ?? 0;
+            const ahead  = branch?.ahead  ?? 0;
+            const behind = branch?.behind ?? 0;
             if (ahead > 0 && behind > 0) { syncDesc = `↑${ahead} ↓${behind}`; }
             else if (ahead > 0)          { syncDesc = `↑${ahead}`; }
             else if (behind > 0)         { syncDesc = `↓${behind}`; }
@@ -195,23 +194,24 @@ export class BranchesProvider extends AbstractProvider {
     // fires a re-render so the item's contextValue flips to the "-loading" variant
     // and the inline button swaps to the spinning icon.
     setBranchLoading(repo: Repository, name: string, loading: boolean): void {
-        const key = repo.rootUri.fsPath + '|' + name;
-        const had = this.loadingBranches.has(key);
-        if (loading) { this.loadingBranches.add(key); } else { this.loadingBranches.delete(key); }
-        if (loading !== had) { this.fireChange(); }
+        if (this.setKeyLoading(repo, name, loading)) { this.fireChange(); }
     }
 
     private isBranchLoading(repo: Repository, name: string): boolean {
-        return this.loadingBranches.has(repo.rootUri.fsPath + '|' + name);
+        return this.loadingBranches.has(this.branchKey(repo, name));
     }
 
     // Toggle the per-key loading flag; returns whether the key's state changed
     // (so callers know whether a re-render is needed).
     private setKeyLoading(repo: Repository, name: string, loading: boolean): boolean {
-        const key = repo.rootUri.fsPath + '|' + name;
+        const key = this.branchKey(repo, name);
         const had = this.loadingBranches.has(key);
         if (loading) { this.loadingBranches.add(key); } else { this.loadingBranches.delete(key); }
         return loading !== had;
+    }
+
+    private branchKey(repo: Repository, name: string): string {
+        return repo.rootUri.fsPath + '|' + name;
     }
 
     /**

@@ -30,7 +30,7 @@ export function makeT(lang: Lang): (key: string, ...args: (string | number)[]) =
     const dict: Dict = dicts[lang];
     return (key, ...args) => {
         let s = dict[key] ?? dicts.en[key] ?? key;
-        args.forEach((a, i) => { s = s.replace(new RegExp(`\\{${i}\\}`, 'g'), String(a)); });
+        args.forEach((a, i) => { s = s.split('{' + i + '}').join(String(a)); });
         return s;
     };
 }

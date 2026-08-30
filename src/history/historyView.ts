@@ -11,7 +11,7 @@ import * as vscode from 'vscode';
 import { getDict, resolveLang, t } from '../shared/i18n';
 import { GitApi, Repository } from '../gitApi';
 import type { BranchItem } from '../branchTreeProvider';
-import { findRepoForFile } from '../shared/ui';
+import { errText, findRepoForFile } from '../shared/ui';
 
 import { execFileAsync, getChangedFiles, getChangedFilesBetween, getChangedFilesVsWorktree, getCommitDiff, getFileFromCommit, getGitPath } from '../git/gitClient';
 import { CommitData, LANE_W, RowLayout, computeLayout, createLayoutState, renderCommitRows } from './graph';
@@ -219,7 +219,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 resolveLang(vscode.env.language),
             );
         } catch (e: any) {
-            view.webview.html = errorHistoryHtml(view.webview.cspSource, String(e.stderr ?? e.message ?? e).trim());
+            view.webview.html = errorHistoryHtml(view.webview.cspSource, errText(e));
         }
     }
 
@@ -247,7 +247,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 const files = await getChangedFiles(repo, msg.hash, msg.parent, this.filePath);
                 view.webview.postMessage({ type: 'files', hash: msg.hash, files });
             } catch (e: any) {
-                view.webview.postMessage({ type: 'files', hash: msg.hash, files: [], error: String(e.stderr ?? e.message ?? e).trim() });
+                view.webview.postMessage({ type: 'files', hash: msg.hash, files: [], error: errText(e) });
             }
         } else if (msg?.type === 'selectCommitWorktree') {
             // "Compare with working tree": list the files that actually differ
@@ -257,14 +257,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 const files = await getChangedFilesVsWorktree(repo, msg.hash, this.filePath);
                 view.webview.postMessage({ type: 'files', hash: msg.hash, files });
             } catch (e: any) {
-                view.webview.postMessage({ type: 'files', hash: msg.hash, files: [], error: String(e.stderr ?? e.message ?? e).trim() });
+                view.webview.postMessage({ type: 'files', hash: msg.hash, files: [], error: errText(e) });
             }
         } else if (msg?.type === 'selectCommitDiff') {
             try {
                 const files = await getCommitDiff(repo, msg.hash, msg.parent, this.filePath);
                 view.webview.postMessage({ type: 'commitDiff', hash: msg.hash, files });
             } catch (e: any) {
-                view.webview.postMessage({ type: 'commitDiff', hash: msg.hash, files: [], error: String(e.stderr ?? e.message ?? e).trim() });
+                view.webview.postMessage({ type: 'commitDiff', hash: msg.hash, files: [], error: errText(e) });
             }
         } else if (msg?.type === 'openCommitDiffTab') {
             // Open each changed file as a NATIVE VS Code compare editor (vscode.diff)
@@ -297,14 +297,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                     }
                 }
             } catch (e: any) {
-                vscode.window.showErrorMessage('Failed to open commit diff: ' + String(e.stderr ?? e.message ?? e).trim());
+                vscode.window.showErrorMessage('Failed to open commit diff: ' + errText(e));
             }
         } else if (msg?.type === 'selectRange') {
             try {
                 const files = await getChangedFilesBetween(repo, msg.fromHash, msg.toHash, this.filePath);
                 view.webview.postMessage({ type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash, files });
             } catch (e: any) {
-                view.webview.postMessage({ type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash, files: [], error: String(e.stderr ?? e.message ?? e).trim() });
+                view.webview.postMessage({ type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash, files: [], error: errText(e) });
             }
         } else if (msg?.type === 'openFile') {
             if (msg.fromHash && msg.toHash) {
@@ -324,7 +324,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             try {
                 await openCompareWithWorktree(repo, msg.hash, msg.status, msg.path, msg.oldPath);
             } catch (e: any) {
-                vscode.window.showErrorMessage(t('diff.compareWorktreeFailed', String(e.stderr ?? e.message ?? e).trim()));
+                vscode.window.showErrorMessage(t('diff.compareWorktreeFailed', errText(e)));
             }
         } else if (msg?.type === 'loadMore') {
             try {
@@ -342,7 +342,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             } catch (e: any) {
                 view.webview.postMessage({
                     type: 'loadMoreError',
-                    error: String(e.stderr ?? e.message ?? e).trim(),
+                    error: errText(e),
                 });
             }
         } else if (msg?.type === 'setScope') {
@@ -368,7 +368,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             } catch (e: any) {
                 view.webview.postMessage({
                     type: 'loadMoreError',
-                    error: String(e.stderr ?? e.message ?? e).trim(),
+                    error: errText(e),
                 });
             }
         } else if (msg?.type === 'openFileHistory') {
@@ -459,7 +459,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                         view.webview.postMessage({ type: 'files', hash, files: newFiles });
                     }
                 } catch (e: any) {
-                    vscode.window.showErrorMessage('Failed to GET file(s): ' + String(e.stderr ?? e.message ?? e).trim());
+                    vscode.window.showErrorMessage('Failed to GET file(s): ' + errText(e));
                 }
             }
         } else if (msg?.type === 'copyHashes') {

@@ -4,7 +4,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { execFileAsync, getGitPath, runGit } from '../git/gitClient';
-import { findRepoForFile, pickRepo, withProgress } from '../shared/ui';
+import { errText, findRepoForFile, pickRepoOrSingle, withProgress } from '../shared/ui';
 import type { RegisterCtx } from './context';
 
 export function registerGlobal(ctx: RegisterCtx): void {
@@ -17,7 +17,7 @@ export function registerGlobal(ctx: RegisterCtx): void {
             results.forEach((r, i) => {
                 if (r.status === 'rejected') {
                     const name = repos[i].rootUri.path.split('/').pop() ?? 'unknown';
-                    const msg = String(r.reason?.stderr ?? r.reason?.message ?? r.reason).trim();
+                    const msg = errText(r.reason);
                     vscode.window.showErrorMessage(`Fetch failed (${name}): ${msg}`);
                 }
             });
@@ -25,9 +25,7 @@ export function registerGlobal(ctx: RegisterCtx): void {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand('gitBranches.createBranch', async () => {
-        const repos = gitApi.repositories;
-        if (repos.length === 0) { return; }
-        const repo = repos.length === 1 ? repos[0] : await pickRepo(repos);
+        const repo = await pickRepoOrSingle(gitApi.repositories);
         if (!repo) { return; }
 
         const name = await vscode.window.showInputBox({
@@ -41,9 +39,7 @@ export function registerGlobal(ctx: RegisterCtx): void {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand('gitBranches.applyPatch', async () => {
-        const repos = gitApi.repositories;
-        if (repos.length === 0) { return; }
-        const repo = repos.length === 1 ? repos[0] : await pickRepo(repos);
+        const repo = await pickRepoOrSingle(gitApi.repositories);
         if (!repo) { return; }
 
         // Always apply from a patch file on disk. The user opens the file picker directly.
@@ -69,7 +65,7 @@ export function registerGlobal(ctx: RegisterCtx): void {
                 } catch (e: any) {
                     // git apply --3way 遇冲突会以非零退出码报错，但冲突/合并后的内容
                     // 已经写入工作区，不应硬失败。
-                    const msg = String(e.stderr ?? e.message ?? e);
+                    const msg = errText(e);
                     if (!/conflict/i.test(msg)) { throw e; }
                     return undefined;
                 }
@@ -84,7 +80,7 @@ export function registerGlobal(ctx: RegisterCtx): void {
                 );
             }
         } catch (e: any) {
-            vscode.window.showErrorMessage(String(e.stderr ?? e.message ?? e).trim());
+            vscode.window.showErrorMessage(errText(e));
         }
     }));
 
@@ -125,7 +121,7 @@ export function registerGlobal(ctx: RegisterCtx): void {
                 } catch (e: any) {
                     // Pull produced conflict markers in the working tree — leave
                     // them in place for manual resolution in the SCM changes area.
-                    const msg = String(e.stderr ?? e.message ?? e);
+                    const msg = errText(e);
                     if (/conflict/i.test(msg)) { conflicts++; }
                     else { throw e; }
                 }
