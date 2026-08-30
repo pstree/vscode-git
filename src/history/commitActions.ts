@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Repository } from '../gitApi';
-import { execFileAsync, getGitPath, runGit } from '../git/gitClient';
+import { execFileAsync, getGitPath, runGit, SHOW_MAX_BUFFER } from '../git/gitClient';
 import { confirm, triggerRefresh, withProgress } from '../shared/ui';
 
 // Ask the user how to finish after writing a patch file: open it, reveal it in
@@ -58,7 +58,7 @@ export async function exportPatches(repo: Repository, hashes: string[], filePath
             const { stdout } = await execFileAsync(
                 getGitPath(),
                 args,
-                { cwd: repo.rootUri.fsPath, maxBuffer: 64 * 1024 * 1024 }
+                { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER }
             );
             parts.push(stdout.trimEnd());
         }
@@ -93,7 +93,7 @@ export async function exportWorktreePatch(repo: Repository, hash: string, filePa
         const { stdout } = await execFileAsync(
             getGitPath(),
             args,
-            { cwd: repo.rootUri.fsPath, maxBuffer: 64 * 1024 * 1024 }
+            { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER }
         );
         await fs.promises.writeFile(outFile, stdout, 'utf8');
     });

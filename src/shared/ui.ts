@@ -66,22 +66,14 @@ export function triggerRefresh(): Promise<void> {
 
 /**
  * Run `fn` under a progress notification. On success it triggers the shared
- * refresh; on failure it surfaces the error's stderr/message. Returns undefined
- * on error so callers can short-circuit. This is the unified place that ties
- * errors, progress UI, and refresh together for git operations.
+ * refresh. The error is NOT reported here — it is re-thrown so the command layer
+ * (the `registerCommand` wrapper) surfaces it exactly once, avoiding duplicate
+ * toasts between this helper, the handler, and VS Code's "command failed" notice.
  */
-export async function withProgress<T>(title: string, fn: () => Promise<T>): Promise<T | undefined> {
+export async function withProgress<T>(title: string, fn: () => Promise<T>): Promise<T> {
     return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, async () => {
-        try {
-            const result = await fn();
-            await _refresh?.();
-            return result;
-        } catch (e: any) {
-            const msg = e.stderr ?? e.message ?? String(e);
-            vscode.window.showErrorMessage(String(msg).trim());
-            // Re-throw so callers don't continue as if the operation succeeded
-            // (e.g. showing a "done" message or reloading a view after a failure).
-            throw e;
-        }
+        const result = await fn();
+        await _refresh?.();
+        return result;
     });
 }

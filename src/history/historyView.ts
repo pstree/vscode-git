@@ -13,7 +13,7 @@ import { GitApi, Repository } from '../gitApi';
 import type { BranchItem } from '../branchTreeProvider';
 import { errText, findRepoForFile } from '../shared/ui';
 
-import { execFileAsync, getChangedFiles, getChangedFilesBetween, getChangedFilesVsWorktree, getCommitDiff, getFileFromCommit, getGitPath } from '../git/gitClient';
+import { execFileAsync, getChangedFiles, getChangedFilesBetween, getChangedFilesVsWorktree, getCommitDiff, getFileFromCommit, getGitPath, SHOW_MAX_BUFFER } from '../git/gitClient';
 import { CommitData, LANE_W, RowLayout, computeLayout, createLayoutState, renderCommitRows } from './graph';
 import { buildHistoryHtml, errorHistoryHtml, placeholderHistoryHtml } from './historyHtml';
 import { openCommitFileDiff, openRangeFileDiff, openCompareWithWorktree } from './commitFileProvider';
@@ -59,23 +59,26 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    // Track which repos already have a HEAD-change listener attached.
-    private watchedRepos = new Set<string>();
+    // Per-repo HEAD-change listeners, keyed by repo path. A re-opened repo with
+    // the same path replaces (disposes) the old listener instead of stacking a
+    // stale one that still points at the previously closed repository.
+    private repoWatch = new Map<string, vscode.Disposable>();
     // Last known checked-out branch name for the repo currently shown.
     private lastHeadName: string | undefined;
 
     private watchRepoHead(repo: Repository): void {
         const key = repo.rootUri.fsPath;
-        if (this.watchedRepos.has(key)) { return; }
-        this.watchedRepos.add(key);
-        this.context.subscriptions.push(repo.state.onDidChange(() => {
+        this.repoWatch.get(key)?.dispose();
+        const sub = repo.state.onDidChange(() => {
             if (!this.view || !this.repo) { return; }
             if (this.repo.rootUri.fsPath !== repo.rootUri.fsPath) { return; }
             const headName = repo.state.HEAD?.name;
             if (headName === this.lastHeadName) { return; } // only react to HEAD changes
             this.lastHeadName = headName;
             void this.loadSession(this.repo, this.fullRef, this.filePath);
-        }));
+        });
+        this.repoWatch.set(key, sub);
+        this.context.subscriptions.push(sub);
     }
 
     private static readonly PAGE_SIZE = 200;
@@ -93,6 +96,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     private layoutState = createLayoutState();
     private loadedCount = 0;
     private currentSvgWidth = LANE_W;
+    // Bumped whenever loadSession()/setScope() starts a new scope. In-flight
+    // async loads capture the generation before awaiting and abandon their
+    // result if it changed, so a late response can't corrupt the new scope.
+    private sessionGen = 0;
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this.view = webviewView;
@@ -163,7 +170,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             args.push(scope);
         }
         if (this.filePath) { args.push('--', this.filePath); }
-        const { stdout } = await execFileAsync(getGitPath(), args, { cwd: this.repo.rootUri.fsPath, maxBuffer: 64 * 1024 * 1024 });
+        const { stdout } = await execFileAsync(getGitPath(), args, { cwd: this.repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
         return stdout.trim().split('\n').filter(Boolean).map(line => {
             const parts = line.split(SEP);
             return {
@@ -193,6 +200,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         this.layoutState = createLayoutState();
         this.currentSvgWidth = LANE_W;
         this.loadedCount = 0;
+        const gen = ++this.sessionGen;
 
         const view = this.view;
         if (!view) { return; }
@@ -201,6 +209,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 this.fetchCommits(this.scope, 0, HistoryViewProvider.PAGE_SIZE),
                 this.listLocalBranches(),
             ]);
+            if (gen !== this.sessionGen) { return; }
             const firstLayouts = computeLayout(first, this.layoutState, !!this.filePath);
             this.bumpSvgWidth(firstLayouts);
             this.loadedCount = first.length;
@@ -328,7 +337,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             }
         } else if (msg?.type === 'loadMore') {
             try {
+                const gen = this.sessionGen;
                 const next = await this.fetchCommits(this.scope, this.loadedCount, PAGE_SIZE);
+                if (gen !== this.sessionGen) { return; }
                 const nextLayouts = computeLayout(next, this.layoutState, !!this.filePath);
                 this.bumpSvgWidth(nextLayouts);
                 this.loadedCount += next.length;
@@ -348,12 +359,14 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         } else if (msg?.type === 'setScope') {
             const newScope = String(msg.scope ?? '');
             if (!newScope || newScope === this.scope) { return; }
+            const gen = ++this.sessionGen;
             try {
                 this.scope = newScope;
                 this.layoutState = createLayoutState();
                 this.currentSvgWidth = LANE_W;
                 this.loadedCount = 0;
                 const page = await this.fetchCommits(this.scope, 0, PAGE_SIZE);
+                if (gen !== this.sessionGen) { return; }
                 const pageLayouts = computeLayout(page, this.layoutState, !!this.filePath);
                 this.bumpSvgWidth(pageLayouts);
                 this.loadedCount = page.length;
@@ -403,12 +416,21 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             }
         } else if (msg?.type === 'exportPatch') {
             const hashes = Array.isArray(msg.hashes) ? msg.hashes.map(String).filter(Boolean) : [];
-            await exportPatches(repo, hashes, this.filePath);
+            try {
+                await exportPatches(repo, hashes, this.filePath);
+            } catch (e: any) {
+                vscode.window.showErrorMessage(errText(e));
+            }
         } else if (msg?.type === 'exportWorktreePatch') {
             // Export the diff between the selected commit and the live working tree
             // (the same comparison shown in the bottom panel in worktree mode).
             const hash = String(msg.hash ?? '');
-            if (hash) { await exportWorktreePatch(repo, hash, this.filePath); }
+            if (!hash) { return; }
+            try {
+                await exportWorktreePatch(repo, hash, this.filePath);
+            } catch (e: any) {
+                vscode.window.showErrorMessage(errText(e));
+            }
         } else if (msg?.type === 'getFile') {
             // GET restores the LEFT (old) side of the file comparison to the working
             // tree (the left side is the "before" version shown in the diff):

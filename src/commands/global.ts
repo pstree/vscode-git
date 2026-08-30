@@ -3,7 +3,7 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { execFileAsync, getGitPath, runGit } from '../git/gitClient';
+import { getBranchUpstream, runGit } from '../git/gitClient';
 import { errText, findRepoForFile, pickRepoOrSingle, withProgress } from '../shared/ui';
 import type { RegisterCtx } from './context';
 
@@ -100,23 +100,11 @@ export function registerGlobal(ctx: RegisterCtx): void {
                 if (!head) { continue; }
 
                 // Resolve the current branch's upstream as "remote/remoteBranch".
-                let upstream: string;
-                try {
-                    const { stdout } = await execFileAsync(
-                        getGitPath(),
-                        ['rev-parse', '--abbrev-ref', `${head}@{upstream}`],
-                        { cwd: repo.rootUri.fsPath }
-                    );
-                    upstream = stdout.trim();
-                } catch {
-                    continue; // no upstream — leave branch untouched
-                }
-                const slashIdx = upstream.indexOf('/');
-                const remote = upstream.slice(0, slashIdx);
-                const remoteBranch = upstream.slice(slashIdx + 1);
+                const upstream = await getBranchUpstream(repo, head);
+                if (!upstream) { continue; } // no upstream — leave branch untouched
 
                 try {
-                    await runGit(repo, ['pull', '--no-edit', remote, remoteBranch]);
+                    await runGit(repo, ['pull', '--no-edit', upstream.remote, upstream.branch]);
                     updated++;
                 } catch (e: any) {
                     // Pull produced conflict markers in the working tree — leave

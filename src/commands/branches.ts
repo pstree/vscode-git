@@ -7,7 +7,7 @@
 import * as vscode from 'vscode';
 import type { RegisterCtx } from './context';
 import { confirm, errText, triggerRefresh, withProgress } from '../shared/ui';
-import { execFileAsync, getGitPath, parseRemoteBranch, runGit } from '../git/gitClient';
+import { getBranchUpstream, parseRemoteBranch, runGit } from '../git/gitClient';
 
 export function registerBranches(ctx: RegisterCtx): void {
     const { reg } = ctx;
@@ -48,23 +48,13 @@ export function registerBranches(ctx: RegisterCtx): void {
                 }
                 await withProgress(`Pulling ${name}...`, () => repo.pull());
             } else {
-                let upstreamRef: string;
-                try {
-                    const { stdout } = await execFileAsync(
-                        getGitPath(),
-                        ['rev-parse', '--abbrev-ref', `${name}@{upstream}`],
-                        { cwd: repo.rootUri.fsPath }
-                    );
-                    upstreamRef = stdout.trim();
-                } catch {
+                const upstream = await getBranchUpstream(repo, name);
+                if (!upstream) {
                     vscode.window.showErrorMessage(`"${name}" has no upstream configured. Use Set Upstream first.`);
                     return;
                 }
-                const slashIdx = upstreamRef.indexOf('/');
-                const remote = upstreamRef.slice(0, slashIdx);
-                const remoteBranch = upstreamRef.slice(slashIdx + 1);
                 await withProgress(`Pulling ${name}...`, () =>
-                    runGit(repo, ['fetch', remote, `${remoteBranch}:${name}`])
+                    runGit(repo, ['fetch', upstream.remote, `${upstream.branch}:${name}`])
                 );
             }
         } finally {

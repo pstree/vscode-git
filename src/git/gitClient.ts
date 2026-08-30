@@ -60,6 +60,36 @@ export function parseRemoteBranch(repo: Repository, ref: Ref): { remote: string;
     return { remote: firstRemote, branch: fullName };
 }
 
+/**
+ * Resolve a branch's configured upstream to its `{ remote, branch }` parts via
+ * `git rev-parse --abbrev-ref <name>@{upstream}` (which yields "remote/remoteBranch").
+ * Returns `undefined` when the branch has no upstream. Remotes with slashes are
+ * matched longest-first so a remote like `github/user` splits correctly.
+ */
+export async function getBranchUpstream(repo: Repository, name: string): Promise<{ remote: string; branch: string } | undefined> {
+    let upstream: string;
+    try {
+        const { stdout } = await execFileAsync(
+            getGitPath(),
+            ['rev-parse', '--abbrev-ref', `${name}@{upstream}`],
+            { cwd: repo.rootUri.fsPath }
+        );
+        upstream = stdout.trim();
+    } catch {
+        return undefined;
+    }
+    const remotes = [...repo.state.remotes].sort((a, b) => b.name.length - a.name.length);
+    for (const r of remotes) {
+        if (upstream.startsWith(r.name + '/')) {
+            return { remote: r.name, branch: upstream.slice(r.name.length + 1) };
+        }
+    }
+    const idx = upstream.indexOf('/');
+    return idx === -1
+        ? { remote: upstream, branch: '' }
+        : { remote: upstream.slice(0, idx), branch: upstream.slice(idx + 1) };
+}
+
 // Empty tree SHA — used as the "parent" when a commit has none (root commit).
 // Diffing against this gives the full content of the commit's tree.
 export const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';

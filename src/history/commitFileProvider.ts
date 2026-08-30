@@ -56,6 +56,19 @@ function buildCommitFileUri(repoRoot: string, filePath: string, ref: string, has
     });
 }
 
+// For a rename/copy the left side is the file's pre-rename path; otherwise both
+// sides use the same path.
+function leftPathFor(status: string, path: string, oldPath?: string): string {
+    return (status === 'R' || status === 'C') ? (oldPath ?? path) : path;
+}
+
+// Diff editor title: "old → new (suffix)" for renames, else "new (suffix)".
+function diffLabel(path: string, status: string, oldPath: string | undefined, suffix: string): string {
+    return (status === 'R' || status === 'C') && oldPath
+        ? `${oldPath} → ${path} (${suffix})`
+        : `${path} (${suffix})`;
+}
+
 /** Open a native diff between two arbitrary refs for one file (range comparison). */
 export async function openRangeFileDiff(
     repo: Repository,
@@ -65,19 +78,16 @@ export async function openRangeFileDiff(
     path: string,
     oldPath?: string,
 ): Promise<void> {
-    const leftPath = (status === 'R' || status === 'C') ? (oldPath ?? path) : path;
-    const rightPath = path;
+    const leftPath = leftPathFor(status, path, oldPath);
     const repoRoot = repo.rootUri.fsPath;
 
     // Use rightRef as the "hash" for the URI fragment (it's only display metadata).
     const leftUri = buildCommitFileUri(repoRoot, leftPath, leftRef, rightRef);
-    const rightUri = buildCommitFileUri(repoRoot, rightPath, rightRef, rightRef);
+    const rightUri = buildCommitFileUri(repoRoot, path, rightRef, rightRef);
 
     const shortL = leftRef === EMPTY_TREE_SHA ? '∅' : leftRef.substring(0, 8);
     const shortR = rightRef.substring(0, 8);
-    const label = (status === 'R' || status === 'C') && oldPath
-        ? `${oldPath} → ${path} (${shortL}..${shortR})`
-        : `${path} (${shortL}..${shortR})`;
+    const label = diffLabel(path, status, oldPath, `${shortL}..${shortR}`);
 
     await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, label, { preview: true });
 }
@@ -95,17 +105,14 @@ export async function openCommitFileDiff(
     const leftRef = parent && parent.length > 0 ? parent : EMPTY_TREE_SHA;
     // For a single-commit view we still want the title to read "(shortHash)" not "(∅..shortHash)",
     // so go through a dedicated label path here while reusing the URI builder.
-    const leftPath = (status === 'R' || status === 'C') ? (oldPath ?? path) : path;
-    const rightPath = path;
+    const leftPath = leftPathFor(status, path, oldPath);
     const repoRoot = repo.rootUri.fsPath;
 
     const leftUri = buildCommitFileUri(repoRoot, leftPath, leftRef, hash);
-    const rightUri = buildCommitFileUri(repoRoot, rightPath, hash, hash);
+    const rightUri = buildCommitFileUri(repoRoot, path, hash, hash);
 
     const shortHash = hash.substring(0, 8);
-    const label = (status === 'R' || status === 'C') && oldPath
-        ? `${oldPath} → ${path} (${shortHash})`
-        : `${path} (${shortHash})`;
+    const label = diffLabel(path, status, oldPath, shortHash);
 
     await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, label, { preview: true });
 }
@@ -126,7 +133,7 @@ export async function openCompareWithWorktree(
     oldPath?: string,
 ): Promise<void> {
     const repoRoot = repo.rootUri.fsPath;
-    const leftPath = (status === 'R' || status === 'C') ? (oldPath ?? filePath) : filePath;
+    const leftPath = leftPathFor(status, filePath, oldPath);
     const leftUri = buildCommitFileUri(repoRoot, leftPath, leftRef, leftRef);
 
     const absRight = path.join(repoRoot, filePath);
@@ -139,8 +146,6 @@ export async function openCompareWithWorktree(
     }
 
     const shortL = leftRef === EMPTY_TREE_SHA ? '∅' : leftRef.substring(0, 8);
-    const label = (status === 'R' || status === 'C') && oldPath
-        ? `${oldPath} → ${filePath} (${shortL} ↔ working)`
-        : `${filePath} (${shortL} ↔ working)`;
+    const label = diffLabel(filePath, status, oldPath, `${shortL} ↔ working`);
     await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, label, { preview: true });
 }

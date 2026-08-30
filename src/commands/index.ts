@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import type { BranchItem, BranchesProvider } from '../branchTreeProvider';
 import { GitApi } from '../gitApi';
 import { CommitFileContentProvider, COMMIT_FILE_SCHEME } from '../history/commitFileProvider';
-import { setRefresh } from '../shared/ui';
+import { errText, setRefresh } from '../shared/ui';
 import { registerBranches } from './branches';
 import { registerTags } from './tags';
 import { registerGlobal } from './global';
@@ -25,7 +25,15 @@ export function registerCommands(
     setRefresh(refresh);
 
     const reg: (id: string, fn: (item?: BranchItem) => Promise<void>) => void =
-        (id, fn) => { context.subscriptions.push(vscode.commands.registerCommand(id, fn)); };
+        (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(id, async (item?) => {
+            try {
+                await fn(item);
+            } catch (e: any) {
+                // Surface a failed git operation exactly once and swallow it here,
+                // so VS Code doesn't add a second generic "command failed" toast.
+                vscode.window.showErrorMessage(errText(e));
+            }
+        }));
 
     // Virtual document provider for viewing commit-file contents.
     context.subscriptions.push(
