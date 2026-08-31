@@ -220,7 +220,7 @@ export function buildHistoryHtml(
      the inner wrapper scrolls horizontally when the SVG exceeds the cap. */
   .col-graph {
     padding-left: 6px; padding-right: 6px;
-    max-width: 120px;
+    max-width: 150px;
     overflow: visible;
   }
   .col-graph .graph-scroll { overflow-x: auto; overflow-y: hidden; }
