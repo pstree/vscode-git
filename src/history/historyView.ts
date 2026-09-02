@@ -454,33 +454,36 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         const files = Array.isArray(msg.files) ? msg.files : [];
         const compareWorktree = !!msg.compareWorktree;
         if (!hash || files.length === 0) { return; }
+        // The left side of the comparison is the source we restore from: the commit
+        // itself in worktree mode, otherwise the parent.
         const leftSource = compareWorktree ? hash : (parent || hash);
+
         const done: string[] = [];
         const removed: string[] = [];
         const skipped: string[] = [];
+        // One-item list → quoted filename, otherwise a count.
+        const summarize = (items: string[]) =>
+            items.length === 1 ? `"${items[0]}"` : `${items.length} files`;
+
         try {
             for (const f of files) {
                 const p = String(f?.path ?? '');
-                if (!p) { continue; }
                 const status = String(f?.status ?? '');
-                if (compareWorktree) {
-                    // getChangedFilesVsWorktree keeps git's own status ('A' = present
-                    // only in the working tree, 'D' = deleted from it). 'A' → delete it
-                    // so the tree matches the commit; anything else ('D','M','R','C') →
-                    // present in / differs from the commit → restore from the commit.
-                    if (status === 'A') {
-                        // Permanently delete the worktree-only file (no trash).
+                if (!p) { continue; }
+                if (status === 'A') {
+                    if (compareWorktree) {
+                        // 'A' = present only in the working tree (not in the commit) →
+                        // delete it so the tree matches the commit.
                         await vscode.workspace.fs.delete(
                             vscode.Uri.file(path.join(repo.rootUri.fsPath, p)),
                             { recursive: false, useTrash: false }
                         );
                         removed.push(p);
-                        continue;
+                    } else {
+                        // Normal mode: 'A' was added on the commit's side, so its parent
+                        // version doesn't exist — nothing to restore.
+                        skipped.push(p);
                     }
-                } else if (status === 'A') {
-                    // Normal mode (commit vs parent): 'A' was added on the commit's
-                    // side, so its parent version doesn't exist — nothing to restore.
-                    skipped.push(p);
                     continue;
                 }
                 // For renames/copies the left/old file lives at oldPath.
@@ -490,21 +493,16 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 done.push(p);
             }
             if (done.length > 0) {
-                const label = done.length === 1 ? `"${done[0]}"` : `${done.length} files`;
-                vscode.window.showInformationMessage(`Got ${label} — local file(s) overwritten.`);
+                vscode.window.showInformationMessage(`Got ${summarize(done)} — local file(s) overwritten.`);
             }
             if (removed.length > 0) {
-                const label = removed.length === 1 ? `"${removed[0]}"` : `${removed.length} files`;
-                vscode.window.showInformationMessage(`Removed ${label} (only in working tree).`);
+                vscode.window.showInformationMessage(`Removed ${summarize(removed)} (only in working tree).`);
             }
             if (skipped.length > 0) {
-                vscode.window.showInformationMessage(
-                    `Skipped (added — no old version): ${skipped.join(', ')}`
-                );
+                vscode.window.showInformationMessage(`Skipped (added — no old version): ${skipped.join(', ')}`);
             }
-            // In working-tree compare mode, re-pull the file list so the just
-            // overwritten files drop out of the diff and the panel reflects the
-            // new local state.
+            // In worktree mode re-pull the list so the just-overwritten files drop
+            // out of the diff and the panel reflects the new local state.
             if (compareWorktree) {
                 const newFiles = await getChangedFilesVsWorktree(repo, hash, this.filePath);
                 view.webview.postMessage({ type: 'files', hash, files: newFiles });

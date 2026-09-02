@@ -33,35 +33,21 @@ export class BranchItem extends vscode.TreeItem {
             : baseContext;
         this.contextValue = loading ? `${contextWithUpstream}-loading` : contextWithUpstream;
 
-        // Build ahead/behind indicator for local branches that have an upstream
-        let syncDesc = '';
-        if (itemContextValue === 'localBranch') {
-            const ahead  = branch?.ahead  ?? 0;
-            const behind = branch?.behind ?? 0;
-            if (ahead > 0 && behind > 0) { syncDesc = `↑${ahead} ↓${behind}`; }
-            else if (ahead > 0)          { syncDesc = `↑${ahead}`; }
-            else if (behind > 0)         { syncDesc = `↓${behind}`; }
-        }
+        // Build ahead/behind indicator for local branches that have an upstream.
+        const syncDesc = itemContextValue === 'localBranch'
+            ? syncDescription(branch?.ahead ?? 0, branch?.behind ?? 0)
+            : '';
 
-        if (isHead) {
-            this.iconPath = new vscode.ThemeIcon('star-full', new vscode.ThemeColor('charts.yellow'));
-            this.description = syncDesc ? `${t('branch.current')} ${syncDesc}` : t('branch.current');
-        } else if (itemContextValue === 'tag') {
-            if (tagSyncStatus === 'unpublished') {
-                this.iconPath = new vscode.ThemeIcon('tag', new vscode.ThemeColor('charts.yellow'));
-                this.description = '↑ not pushed';
-                this.tooltip = `${ref.name} — local only, not pushed to remote`;
-            } else if (tagSyncStatus === 'conflict') {
-                this.iconPath = new vscode.ThemeIcon('tag', new vscode.ThemeColor('errorForeground'));
-                this.description = '⚠ conflict';
-                this.tooltip = `${ref.name} — conflicts with remote (different commits)`;
-            } else {
-                this.iconPath = new vscode.ThemeIcon('tag');
-            }
-        } else {
-            this.iconPath = new vscode.ThemeIcon('git-branch');
-            if (syncDesc) { this.description = syncDesc; }
-        }
+        const pres = rowPresentation({
+            isHead,
+            kind: itemContextValue,
+            syncDesc,
+            tagSyncStatus,
+            refName: ref.name ?? label,
+        });
+        this.iconPath = pres.iconPath;
+        if (pres.description) { this.description = pres.description; }
+        if (pres.tooltip) { this.tooltip = pres.tooltip; }
 
         // Make it obvious a local branch has never been pushed: append a "no
         // upstream" note (the inline ↑ button already signals this visually).
@@ -469,6 +455,42 @@ export class TagProvider extends AbstractProvider {
 }
 
 // ---- Helpers ----
+
+// Summarize a local branch's ahead/behind into a sync indicator string (may be '').
+function syncDescription(ahead: number, behind: number): string {
+    if (ahead > 0 && behind > 0) { return `↑${ahead} ↓${behind}`; }
+    if (ahead > 0) { return `↑${ahead}`; }
+    if (behind > 0) { return `↓${behind}`; }
+    return '';
+}
+
+// Icon + description (+ contextual tooltip) for a tree row. The no-upstream
+// marker is applied separately by the caller because it overrides even the
+// current-branch label.
+function rowPresentation(args: {
+    isHead: boolean;
+    kind: 'localBranch' | 'remoteBranch' | 'tag';
+    syncDesc: string;
+    tagSyncStatus?: TagSyncStatus;
+    refName: string;
+}): { iconPath: vscode.ThemeIcon; description?: string; tooltip?: string } {
+    if (args.isHead) {
+        return {
+            iconPath: new vscode.ThemeIcon('star-full', new vscode.ThemeColor('charts.yellow')),
+            description: args.syncDesc ? `${t('branch.current')} ${args.syncDesc}` : t('branch.current'),
+        };
+    }
+    if (args.kind === 'tag') {
+        if (args.tagSyncStatus === 'unpublished') {
+            return { iconPath: new vscode.ThemeIcon('tag', new vscode.ThemeColor('charts.yellow')), description: '↑ not pushed', tooltip: `${args.refName} — local only, not pushed to remote` };
+        }
+        if (args.tagSyncStatus === 'conflict') {
+            return { iconPath: new vscode.ThemeIcon('tag', new vscode.ThemeColor('errorForeground')), description: '⚠ conflict', tooltip: `${args.refName} — conflicts with remote (different commits)` };
+        }
+        return { iconPath: new vscode.ThemeIcon('tag') };
+    }
+    return { iconPath: new vscode.ThemeIcon('git-branch'), description: args.syncDesc || undefined };
+}
 
 function isHeadRef(ref: Ref): boolean {
     const name = ref.name ?? '';
