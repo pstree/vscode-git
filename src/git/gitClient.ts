@@ -147,17 +147,9 @@ export async function getChangedFilesVsWorktree(repo: Repository, hash: string, 
     const args = ['diff', '--name-status', '-M', hash];
     if (filePath) { args.push('--', filePath); }
     const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
-    const files = parseNameStatusOutput(stdout);
-    // `git diff <hash>` reports status from git's perspective ('A' = added to the
-    // working tree, 'D' = deleted from it). For the history view's "compare with
-    // working tree" we flip A↔D so the badge describes the GET alignment action
-    // from the worktree's side: 'A' = present only in the commit (GET restores it),
-    // 'D' = present only in the working tree (GET deletes it).
-    for (const f of files) {
-        if (f.status === 'A') { f.status = 'D'; }
-        else if (f.status === 'D') { f.status = 'A'; }
-    }
-    return files;
+    // Use git's own status perspective verbatim so the list matches the working
+    // tree:'A' = added to the working tree, 'D' = deleted from it, 'M' = modified.
+    return parseNameStatusOutput(stdout);
 }
 
 /**

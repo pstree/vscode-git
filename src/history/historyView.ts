@@ -84,6 +84,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     private static readonly PAGE_SIZE = 200;
     private static readonly SEP = '\x01';
     private static readonly ALL_SENTINEL = '__ALL__';
+    // Commit actions that mutate history and therefore require a list reload.
+    private static readonly RELOAD_ACTIONS = new Set(['resetSoft', 'resetHard', 'revert', 'cherryPick', 'createBranch', 'checkout']);
 
     private view?: vscode.WebviewView;
     private pending?: { repo: Repository; fullRef: string; filePath?: string };
@@ -248,267 +250,275 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         const view = this.view;
         const repo = this.repo;
         if (!view || !repo) { return; }
-        const PAGE_SIZE = HistoryViewProvider.PAGE_SIZE;
-        const ALL_SENTINEL = HistoryViewProvider.ALL_SENTINEL;
 
-        if (msg?.type === 'selectCommit') {
-            try {
-                const files = await getChangedFiles(repo, msg.hash, msg.parent, this.filePath);
-                view.webview.postMessage({ type: 'files', hash: msg.hash, files });
-            } catch (e: any) {
-                view.webview.postMessage({ type: 'files', hash: msg.hash, files: [], error: errText(e) });
+        // Thin dispatch: each message type maps to one small handler below, so no
+        // single method grows into a long if/else chain.
+        switch (msg?.type) {
+            case 'selectCommit': return this.postChangedFiles(view, { type: 'files', hash: msg.hash }, () =>
+                getChangedFiles(repo, msg.hash, msg.parent, this.filePath));
+            case 'selectCommitWorktree': return this.postChangedFiles(view, { type: 'files', hash: msg.hash }, () =>
+                getChangedFilesVsWorktree(repo, msg.hash, this.filePath));
+            case 'selectCommitDiff': return this.postChangedFiles(view, { type: 'commitDiff', hash: msg.hash }, () =>
+                getCommitDiff(repo, msg.hash, msg.parent, this.filePath));
+            case 'selectRange': return this.postChangedFiles(view,
+                { type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash }, () =>
+                    getChangedFilesBetween(repo, msg.fromHash, msg.toHash, this.filePath));
+            case 'openCommitDiffTab': return this.openCommitDiffTab(msg, repo);
+            case 'openFile': return this.openFile(msg, repo);
+            case 'compareWorktree': return this.compareFileWorktree(msg, repo);
+            case 'loadMore': return this.loadMore(view);
+            case 'setScope': return this.setScope(msg, view);
+            case 'openFileHistory': return this.openFileHistory(msg, repo);
+            case 'clearFileScope': return this.show(repo, this.fullRef, undefined);
+            case 'commitAction': return this.commitAction(msg, repo);
+            case 'exportPatch': return this.exportPatch(msg, repo);
+            case 'exportWorktreePatch': return this.exportWorktreePatch(msg, repo);
+            case 'getFile': return this.getFile(msg, repo, view);
+            case 'copyHashes': return this.copyHashes(msg);
+            default: return; // unknown type — ignore
+        }
+    }
+
+    // Fetch a changed-file list and post it to the webview; on error post an empty
+    // list carrying the message. Shared by the four select* handlers.
+    private async postChangedFiles(
+        view: vscode.WebviewView,
+        payload: Record<string, unknown>,
+        fetch: () => Promise<Array<{ status: string; path: string; oldPath?: string }>>,
+    ): Promise<void> {
+        try {
+            const files = await fetch();
+            view.webview.postMessage({ ...payload, files });
+        } catch (e: any) {
+            view.webview.postMessage({ ...payload, files: [], error: errText(e) });
+        }
+    }
+
+    // Open each changed file as a NATIVE VS Code compare editor (vscode.diff) so
+    // the built-in compareEditor.nextChange/previousChange shortcuts (e.g. F7 /
+    // Shift+F7) can jump between diff hunks. A webview diff can't receive those
+    // keybindings. In file-scoped history only the tracked file opens.
+    private async openCommitDiffTab(msg: any, repo: Repository): Promise<void> {
+        try {
+            const worktree = !!msg.compareWorktree;
+            const files = worktree
+                ? await getChangedFilesVsWorktree(repo, msg.hash, this.filePath)
+                : await getChangedFiles(repo, msg.hash, msg.parent, this.filePath);
+            if (files.length === 0) {
+                vscode.window.showInformationMessage(
+                    worktree ? 'No file changes vs working tree.' : 'No file changes in this commit.');
+                return;
             }
-        } else if (msg?.type === 'selectCommitWorktree') {
-            // "Compare with working tree": list the files that actually differ
-            // between the commit and the live working tree (git diff <hash>),
-            // so the bottom panel reflects the working-tree comparison.
-            try {
-                const files = await getChangedFilesVsWorktree(repo, msg.hash, this.filePath);
-                view.webview.postMessage({ type: 'files', hash: msg.hash, files });
-            } catch (e: any) {
-                view.webview.postMessage({ type: 'files', hash: msg.hash, files: [], error: errText(e) });
-            }
-        } else if (msg?.type === 'selectCommitDiff') {
-            try {
-                const files = await getCommitDiff(repo, msg.hash, msg.parent, this.filePath);
-                view.webview.postMessage({ type: 'commitDiff', hash: msg.hash, files });
-            } catch (e: any) {
-                view.webview.postMessage({ type: 'commitDiff', hash: msg.hash, files: [], error: errText(e) });
-            }
-        } else if (msg?.type === 'openCommitDiffTab') {
-            // Open each changed file as a NATIVE VS Code compare editor (vscode.diff)
-            // so the built-in compareEditor.nextChange/previousChange shortcuts
-            // (e.g. F7 / Shift+F7) can jump between diff hunks. A webview diff
-            // can't receive those keybindings. In file-scoped history only the
-            // tracked file opens.
-            try {
-                if (msg.compareWorktree) {
-                    // "Compare with working tree" mode: open each file as a native
-                    // compare editor between the commit's version (left, read-only)
-                    // and the live working-tree file (right) — matching the bottom
-                    // panel's file list, instead of the commit-vs-parent diff.
-                    const files = await getChangedFilesVsWorktree(repo, msg.hash, this.filePath);
-                    if (files.length === 0) {
-                        vscode.window.showInformationMessage('No file changes vs working tree.');
-                    } else {
-                        for (const f of files) {
-                            await openCompareWithWorktree(repo, msg.hash, f.status, f.path, f.oldPath);
-                        }
-                    }
+            for (const f of files) {
+                if (worktree) {
+                    // Compare the commit's version (left, read-only) against the live
+                    // working-tree file (right) — matching the bottom panel's list.
+                    await openCompareWithWorktree(repo, msg.hash, f.status, f.path, f.oldPath);
                 } else {
-                    const files = await getChangedFiles(repo, msg.hash, msg.parent, this.filePath);
-                    if (files.length === 0) {
-                        vscode.window.showInformationMessage('No file changes in this commit.');
-                    } else {
-                        for (const f of files) {
-                            await openCommitFileDiff(this.gitApi, repo, msg.hash, msg.parent, f.status, f.path, f.oldPath);
-                        }
-                    }
-                }
-            } catch (e: any) {
-                vscode.window.showErrorMessage('Failed to open commit diff: ' + errText(e));
-            }
-        } else if (msg?.type === 'selectRange') {
-            try {
-                const files = await getChangedFilesBetween(repo, msg.fromHash, msg.toHash, this.filePath);
-                view.webview.postMessage({ type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash, files });
-            } catch (e: any) {
-                view.webview.postMessage({ type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash, files: [], error: errText(e) });
-            }
-        } else if (msg?.type === 'openFile') {
-            if (msg.fromHash && msg.toHash) {
-                await openRangeFileDiff(repo, msg.fromHash, msg.toHash, msg.status, msg.path, msg.oldPath);
-            } else if (msg.compareWorktree) {
-                // "Compare with working tree" from the commit context menu: diff the
-                // selected commit's version (left, read-only) against the live editable
-                // working file (right) so changes can be applied via << / >>.
-                await openCompareWithWorktree(repo, msg.hash, msg.status, msg.path, msg.oldPath);
-            } else {
-                await openCommitFileDiff(this.gitApi, repo, msg.hash, msg.parent, msg.status, msg.path, msg.oldPath);
-            }
-        } else if (msg?.type === 'compareWorktree') {
-            // "Compare with working tree" from a FILE row's right-click menu: diff a
-            // single file's committed version (read-only left) against the live editable
-            // working file (right). `path`/`oldPath`/`status` come straight from the row.
-            try {
-                await openCompareWithWorktree(repo, msg.hash, msg.status, msg.path, msg.oldPath);
-            } catch (e: any) {
-                vscode.window.showErrorMessage(t('diff.compareWorktreeFailed', errText(e)));
-            }
-        } else if (msg?.type === 'loadMore') {
-            try {
-                const gen = this.sessionGen;
-                const next = await this.fetchCommits(this.scope, this.loadedCount, PAGE_SIZE);
-                if (gen !== this.sessionGen) { return; }
-                const nextLayouts = computeLayout(next, this.layoutState, !!this.filePath);
-                this.bumpSvgWidth(nextLayouts);
-                this.loadedCount += next.length;
-                view.webview.postMessage({
-                    type: 'moreCommits',
-                    rowsHtml: renderCommitRows(next, nextLayouts, this.currentSvgWidth),
-                    svgWidth: this.currentSvgWidth,
-                    added: next.length,
-                    hasMore: next.length === PAGE_SIZE,
-                });
-            } catch (e: any) {
-                view.webview.postMessage({
-                    type: 'loadMoreError',
-                    error: errText(e),
-                });
-            }
-        } else if (msg?.type === 'setScope') {
-            const newScope = String(msg.scope ?? '');
-            if (!newScope || newScope === this.scope) { return; }
-            const gen = ++this.sessionGen;
-            try {
-                this.scope = newScope;
-                this.layoutState = createLayoutState();
-                this.currentSvgWidth = LANE_W;
-                this.loadedCount = 0;
-                const page = await this.fetchCommits(this.scope, 0, PAGE_SIZE);
-                if (gen !== this.sessionGen) { return; }
-                const pageLayouts = computeLayout(page, this.layoutState, !!this.filePath);
-                this.bumpSvgWidth(pageLayouts);
-                this.loadedCount = page.length;
-                view.webview.postMessage({
-                    type: 'resetCommits',
-                    scope: this.scope,
-                    rowsHtml: renderCommitRows(page, pageLayouts, this.currentSvgWidth),
-                    svgWidth: this.currentSvgWidth,
-                    loadedCount: this.loadedCount,
-                    hasMore: page.length === PAGE_SIZE,
-                });
-            } catch (e: any) {
-                view.webview.postMessage({
-                    type: 'loadMoreError',
-                    error: errText(e),
-                });
-            }
-        } else if (msg?.type === 'openFileHistory') {
-            // Re-scope this same docked view to a single file's history.
-            const ref = (this.scope === ALL_SENTINEL ? this.fullRef : this.scope) || this.fullRef;
-            const fp = msg.filePath ?? msg.path;
-            if (fp) { await this.show(repo, ref, String(fp)); }
-        } else if (msg?.type === 'clearFileScope') {
-            // Drop the file filter; return to the full branch history.
-            await this.show(repo, this.fullRef, undefined);
-        } else if (msg?.type === 'commitAction') {
-            const action = String(msg?.action ?? '');
-            // `git reset` only acts on the checked-out branch. It does NOT require an
-            // upstream — `git reset <hash>` works on the current branch regardless.
-            if (action === 'resetSoft' || action === 'resetHard') {
-                const head = repo.state.HEAD;
-                if (head?.name !== this.fullRef) {
-                    vscode.window.showInformationMessage(
-                        `Reset is only available for the current branch (${head?.name ?? 'HEAD'}). The history view is showing "${this.fullRef}".`
-                    );
-                    return;
+                    await openCommitFileDiff(this.gitApi, repo, msg.hash, msg.parent, f.status, f.path, f.oldPath);
                 }
             }
-            await handleCommitAction(repo, msg);
-            // Revert / cherry-pick / create-branch / checkout change the committed
-            // history (or move HEAD). Reset rewrites the checked-out branch's history.
-            // Reload the list so the change is visible — otherwise the operation
-            // succeeds silently and looks like "nothing happened".
-            const reloadActions = new Set(['resetSoft', 'resetHard', 'revert', 'cherryPick', 'createBranch', 'checkout']);
-            if (reloadActions.has(action)) {
-                await this.loadSession(repo, this.fullRef, this.filePath);
+        } catch (e: any) {
+            vscode.window.showErrorMessage('Failed to open commit diff: ' + errText(e));
+        }
+    }
+
+    private async openFile(msg: any, repo: Repository): Promise<void> {
+        if (msg.fromHash && msg.toHash) {
+            await openRangeFileDiff(repo, msg.fromHash, msg.toHash, msg.status, msg.path, msg.oldPath);
+        } else if (msg.compareWorktree) {
+            // Compare the selected commit's version (left, read-only) against the live
+            // editable working file (right) so changes can be applied via << / >>.
+            await openCompareWithWorktree(repo, msg.hash, msg.status, msg.path, msg.oldPath);
+        } else {
+            await openCommitFileDiff(this.gitApi, repo, msg.hash, msg.parent, msg.status, msg.path, msg.oldPath);
+        }
+    }
+
+    // "Compare with working tree" from a FILE row's right-click menu: diff a single
+    // file's committed version (read-only left) against the live editable working
+    // file (right). path/oldPath/status come straight from the row.
+    private async compareFileWorktree(msg: any, repo: Repository): Promise<void> {
+        try {
+            await openCompareWithWorktree(repo, msg.hash, msg.status, msg.path, msg.oldPath);
+        } catch (e: any) {
+            vscode.window.showErrorMessage(t('diff.compareWorktreeFailed', errText(e)));
+        }
+    }
+
+    private async loadMore(view: vscode.WebviewView): Promise<void> {
+        try {
+            const gen = this.sessionGen;
+            const next = await this.fetchCommits(this.scope, this.loadedCount, HistoryViewProvider.PAGE_SIZE);
+            if (gen !== this.sessionGen) { return; }
+            const nextLayouts = computeLayout(next, this.layoutState, !!this.filePath);
+            this.bumpSvgWidth(nextLayouts);
+            this.loadedCount += next.length;
+            view.webview.postMessage({
+                type: 'moreCommits',
+                rowsHtml: renderCommitRows(next, nextLayouts, this.currentSvgWidth),
+                svgWidth: this.currentSvgWidth,
+                added: next.length,
+                hasMore: next.length === HistoryViewProvider.PAGE_SIZE,
+            });
+        } catch (e: any) {
+            view.webview.postMessage({ type: 'loadMoreError', error: errText(e) });
+        }
+    }
+
+    private async setScope(msg: any, view: vscode.WebviewView): Promise<void> {
+        const newScope = String(msg.scope ?? '');
+        if (!newScope || newScope === this.scope) { return; }
+        const gen = ++this.sessionGen;
+        try {
+            this.scope = newScope;
+            this.layoutState = createLayoutState();
+            this.currentSvgWidth = LANE_W;
+            this.loadedCount = 0;
+            const page = await this.fetchCommits(this.scope, 0, HistoryViewProvider.PAGE_SIZE);
+            if (gen !== this.sessionGen) { return; }
+            const pageLayouts = computeLayout(page, this.layoutState, !!this.filePath);
+            this.bumpSvgWidth(pageLayouts);
+            this.loadedCount = page.length;
+            view.webview.postMessage({
+                type: 'resetCommits',
+                scope: this.scope,
+                rowsHtml: renderCommitRows(page, pageLayouts, this.currentSvgWidth),
+                svgWidth: this.currentSvgWidth,
+                loadedCount: this.loadedCount,
+                hasMore: page.length === HistoryViewProvider.PAGE_SIZE,
+            });
+        } catch (e: any) {
+            view.webview.postMessage({ type: 'loadMoreError', error: errText(e) });
+        }
+    }
+
+    // Re-scope this same docked view to a single file's history.
+    private async openFileHistory(msg: any, repo: Repository): Promise<void> {
+        const ref = (this.scope === HistoryViewProvider.ALL_SENTINEL ? this.fullRef : this.scope) || this.fullRef;
+        const fp = msg.filePath ?? msg.path;
+        if (fp) { await this.show(repo, ref, String(fp)); }
+    }
+
+    private async commitAction(msg: any, repo: Repository): Promise<void> {
+        const action = String(msg?.action ?? '');
+        // `git reset` only acts on the checked-out branch. It does NOT require an
+        // upstream — `git reset <hash>` works on the current branch regardless.
+        if (action === 'resetSoft' || action === 'resetHard') {
+            const head = repo.state.HEAD;
+            if (head?.name !== this.fullRef) {
+                vscode.window.showInformationMessage(
+                    `Reset is only available for the current branch (${head?.name ?? 'HEAD'}). The history view is showing "${this.fullRef}".`
+                );
+                return;
             }
-        } else if (msg?.type === 'exportPatch') {
-            const hashes = Array.isArray(msg.hashes) ? msg.hashes.map(String).filter(Boolean) : [];
-            try {
-                await exportPatches(repo, hashes, this.filePath);
-            } catch (e: any) {
-                vscode.window.showErrorMessage(errText(e));
-            }
-        } else if (msg?.type === 'exportWorktreePatch') {
-            // Export the diff between the selected commit and the live working tree
-            // (the same comparison shown in the bottom panel in worktree mode).
-            const hash = String(msg.hash ?? '');
-            if (!hash) { return; }
-            try {
-                await exportWorktreePatch(repo, hash, this.filePath);
-            } catch (e: any) {
-                vscode.window.showErrorMessage(errText(e));
-            }
-        } else if (msg?.type === 'getFile') {
-            // GET restores the LEFT (old) side of the file comparison to the working
-            // tree (the left side is the "before" version shown in the diff):
-            //   normal mode (commit vs parent)   → left = parent
-            //   worktree mode (commit vs working) → left = commit (= hash)
-            // git recreates any missing parent folders automatically. Paths are
-            // relative to the repo root; checkout runs with cwd = repo root.
-            const hash = String(msg.hash ?? '');
-            const parent = String(msg.parent ?? '');
-            const files = Array.isArray(msg.files) ? msg.files : [];
-            const compareWorktree = !!msg.compareWorktree;
-            if (hash && files.length > 0) {
-                const leftSource = compareWorktree ? hash : (parent || hash);
-                const done: string[] = [];
-                const removed: string[] = [];
-                const skipped: string[] = [];
-                try {
-                    for (const f of files) {
-                        const p = String(f?.path ?? '');
-                        if (!p) { continue; }
-                        const status = String(f?.status ?? '');
-                        if (compareWorktree) {
-                            // Worktree-compare letters already describe the GET alignment
-                            // action (see getChangedFilesVsWorktree): 'D' = present only
-                            // in the working tree → delete it so the tree matches the commit;
-                            // anything else ('A', 'M', 'R', 'C') = present only in / differs
-                            // from the commit → restore from the commit.
-                            if (status === 'D') {
-                                // Permanently delete the worktree-only file (no trash).
-                                await vscode.workspace.fs.delete(
-                                    vscode.Uri.file(path.join(repo.rootUri.fsPath, p)),
-                                    { recursive: false, useTrash: false }
-                                );
-                                removed.push(p);
-                                continue;
-                            }
-                        } else if (status === 'A') {
-                            // Normal mode (commit vs parent): 'A' was added on the commit's
-                            // side, so its parent version doesn't exist — nothing to restore.
-                            skipped.push(p);
-                            continue;
-                        }
-                        // For renames/copies the left/old file lives at oldPath.
-                        const leftPath = (status === 'R' || status === 'C') && f?.oldPath
-                            ? String(f.oldPath) : p;
-                        await getFileFromCommit(repo, leftSource, leftPath);
-                        done.push(p);
-                    }
-                    if (done.length > 0) {
-                        const label = done.length === 1 ? `"${done[0]}"` : `${done.length} files`;
-                        vscode.window.showInformationMessage(`Got ${label} — local file(s) overwritten.`);
-                    }
-                    if (removed.length > 0) {
-                        const label = removed.length === 1 ? `"${removed[0]}"` : `${removed.length} files`;
-                        vscode.window.showInformationMessage(`Removed ${label} (only in working tree).`);
-                    }
-                    if (skipped.length > 0) {
-                        vscode.window.showInformationMessage(
-                            `Skipped (added — no old version): ${skipped.join(', ')}`
+        }
+        await handleCommitAction(repo, msg);
+        // Revert / cherry-pick / create-branch / checkout change the committed
+        // history (or move HEAD). Reset rewrites the checked-out branch's history.
+        // Reload the list so the change is visible — otherwise the operation
+        // succeeds silently and looks like "nothing happened".
+        if (HistoryViewProvider.RELOAD_ACTIONS.has(action)) {
+            await this.loadSession(repo, this.fullRef, this.filePath);
+        }
+    }
+
+    private async exportPatch(msg: any, repo: Repository): Promise<void> {
+        const hashes = Array.isArray(msg.hashes) ? msg.hashes.map(String).filter(Boolean) : [];
+        try {
+            await exportPatches(repo, hashes, this.filePath);
+        } catch (e: any) {
+            vscode.window.showErrorMessage(errText(e));
+        }
+    }
+
+    // Export the diff between the selected commit and the live working tree (the
+    // same comparison shown in the bottom panel in worktree mode).
+    private async exportWorktreePatch(msg: any, repo: Repository): Promise<void> {
+        const hash = String(msg.hash ?? '');
+        if (!hash) { return; }
+        try {
+            await exportWorktreePatch(repo, hash, this.filePath);
+        } catch (e: any) {
+            vscode.window.showErrorMessage(errText(e));
+        }
+    }
+
+    // GET restores the LEFT (old) side of the file comparison to the working tree
+    // (the left side is the "before" version shown in the diff):
+    //   normal mode (commit vs parent)   → left = parent
+    //   worktree mode (commit vs working) → left = commit (= hash)
+    private async getFile(msg: any, repo: Repository, view: vscode.WebviewView): Promise<void> {
+        const hash = String(msg.hash ?? '');
+        const parent = String(msg.parent ?? '');
+        const files = Array.isArray(msg.files) ? msg.files : [];
+        const compareWorktree = !!msg.compareWorktree;
+        if (!hash || files.length === 0) { return; }
+        const leftSource = compareWorktree ? hash : (parent || hash);
+        const done: string[] = [];
+        const removed: string[] = [];
+        const skipped: string[] = [];
+        try {
+            for (const f of files) {
+                const p = String(f?.path ?? '');
+                if (!p) { continue; }
+                const status = String(f?.status ?? '');
+                if (compareWorktree) {
+                    // getChangedFilesVsWorktree keeps git's own status ('A' = present
+                    // only in the working tree, 'D' = deleted from it). 'A' → delete it
+                    // so the tree matches the commit; anything else ('D','M','R','C') →
+                    // present in / differs from the commit → restore from the commit.
+                    if (status === 'A') {
+                        // Permanently delete the worktree-only file (no trash).
+                        await vscode.workspace.fs.delete(
+                            vscode.Uri.file(path.join(repo.rootUri.fsPath, p)),
+                            { recursive: false, useTrash: false }
                         );
+                        removed.push(p);
+                        continue;
                     }
-                    // In working-tree compare mode, re-pull the file list so the just
-                    // overwritten files drop out of the diff (their worktree differences
-                    // are now gone) and the panel reflects the new local state.
-                    if (compareWorktree) {
-                        const newFiles = await getChangedFilesVsWorktree(repo, hash, this.filePath);
-                        view.webview.postMessage({ type: 'files', hash, files: newFiles });
-                    }
-                } catch (e: any) {
-                    vscode.window.showErrorMessage('Failed to GET file(s): ' + errText(e));
+                } else if (status === 'A') {
+                    // Normal mode (commit vs parent): 'A' was added on the commit's
+                    // side, so its parent version doesn't exist — nothing to restore.
+                    skipped.push(p);
+                    continue;
                 }
+                // For renames/copies the left/old file lives at oldPath.
+                const leftPath = (status === 'R' || status === 'C') && f?.oldPath
+                    ? String(f.oldPath) : p;
+                await getFileFromCommit(repo, leftSource, leftPath);
+                done.push(p);
             }
-        } else if (msg?.type === 'copyHashes') {
-            const hashes = Array.isArray(msg.hashes) ? msg.hashes.map(String).filter(Boolean) : [];
-            if (hashes.length > 0) {
-                await vscode.env.clipboard.writeText(hashes.join('\n'));
-                vscode.window.showInformationMessage(`Copied ${hashes.length} commit hash(es).`);
+            if (done.length > 0) {
+                const label = done.length === 1 ? `"${done[0]}"` : `${done.length} files`;
+                vscode.window.showInformationMessage(`Got ${label} — local file(s) overwritten.`);
             }
+            if (removed.length > 0) {
+                const label = removed.length === 1 ? `"${removed[0]}"` : `${removed.length} files`;
+                vscode.window.showInformationMessage(`Removed ${label} (only in working tree).`);
+            }
+            if (skipped.length > 0) {
+                vscode.window.showInformationMessage(
+                    `Skipped (added — no old version): ${skipped.join(', ')}`
+                );
+            }
+            // In working-tree compare mode, re-pull the file list so the just
+            // overwritten files drop out of the diff and the panel reflects the
+            // new local state.
+            if (compareWorktree) {
+                const newFiles = await getChangedFilesVsWorktree(repo, hash, this.filePath);
+                view.webview.postMessage({ type: 'files', hash, files: newFiles });
+            }
+        } catch (e: any) {
+            vscode.window.showErrorMessage('Failed to GET file(s): ' + errText(e));
+        }
+    }
+
+    private async copyHashes(msg: any): Promise<void> {
+        const hashes = Array.isArray(msg.hashes) ? msg.hashes.map(String).filter(Boolean) : [];
+        if (hashes.length > 0) {
+            await vscode.env.clipboard.writeText(hashes.join('\n'));
+            vscode.window.showInformationMessage(`Copied ${hashes.length} commit hash(es).`);
         }
     }
 }

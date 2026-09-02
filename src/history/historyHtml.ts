@@ -271,23 +271,14 @@ export function buildHistoryHtml(
   }
   .file-row:hover { background: var(--vscode-list-hoverBackground); }
   .file-row.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
-  .file-row .status {
-    flex: 0 0 16px;
-    text-align: center;
-    font-weight: bold;
-    font-size: 11px;
-    border-radius: 3px;
-    padding: 0 4px;
-    line-height: 16px;
-    color: #fff;
-  }
-  .file-row .status.A { background: #28a745; }
-  .file-row .status.M { background: #d29922; }
-  .file-row .status.D { background: #cb2431; }
-  .file-row .status.R { background: #6f42c1; }
-  .file-row .status.C { background: #6f42c1; }
-  .file-row .status.T { background: #586069; }
-  .file-row .dir  { color: var(--vscode-descriptionForeground); font-size: 11px; margin-left: 2px; }
+  /* Status is conveyed purely via the file-name color (no letter badge).
+     Added = green, modified = blue, deleted = gray; the trailing directory
+     part stays in the default muted color so only the file name is tinted. */
+  .file-row .path.A { color: #28a745; }
+  .file-row .path.M { color: #58a6ff; }
+  .file-row .path.D { color: #8b949e; }
+  .file-row .path .dir { color: var(--vscode-descriptionForeground); }
+  .file-row .dir  { color: var(--vscode-descriptionForeground); font-size: 11px; margin-left: 8px; }
   .file-row .rename-from { color: var(--vscode-descriptionForeground); margin-right: 4px; }
 
   .load-more {
@@ -489,9 +480,8 @@ export function buildHistoryHtml(
         ? '<span class="rename-from">' + escapeHtml(f.oldPath) + ' →</span>'
         : '';
       return '<div class="file-row" data-path="' + escapeHtml(f.path) + '" data-old="' + escapeHtml(f.oldPath || '') + '" data-status="' + escapeHtml(f.status) + '">' +
-        '<span class="status ' + escapeHtml(f.status) + '">' + escapeHtml(f.status) + '</span>' +
         rename +
-        '<span class="path">' + escapeHtml(sp.name) + '<span class="dir">' + escapeHtml(sp.dir) + '</span></span>' +
+        '<span class="path ' + escapeHtml(f.status) + '">' + escapeHtml(sp.name) + '<span class="dir">' + escapeHtml(sp.dir) + '</span></span>' +
       '</div>';
     }).join('');
   }
