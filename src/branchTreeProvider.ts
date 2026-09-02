@@ -292,7 +292,11 @@ export class BranchesProvider extends AbstractProvider {
         try {
             const { stdout } = await execFileAsync(
                 getGitPath(),
-                ['for-each-ref', '--format=%(refname:short)|%(upstream:short)', 'refs/heads/'],
+                // 用 lstrip=2 去掉 refs/heads/ 前缀，而不是 %(refname:short)：当某个
+                // 远程名与本地分支重名（如远程就叫 master）时，:short 会因歧义退化成
+                // "heads/master"，导致 map 的 key 与 getBranches() 返回的 "master"
+                // 对不上，误判为 no upstream。
+                ['for-each-ref', '--format=%(refname:lstrip=2)|%(upstream:short)', 'refs/heads/'],
                 { cwd: repo.rootUri.fsPath }
             );
             for (const line of stdout.trim().split('\n').filter(Boolean)) {
