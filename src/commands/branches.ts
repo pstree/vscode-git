@@ -237,8 +237,11 @@ export function registerBranches(ctx: RegisterCtx): void {
             validateInput: v => v.trim() ? undefined : 'Branch name cannot be empty',
         });
         if (!localName) { return; }
+        // 显式 --track：git 默认在 checkout -b <local> <remote>/<branch> 时自动
+        // 设置 upstream，但受 branch.autoSetupMerge 配置影响可能不设置（多远程时
+        // 更容易踩到）。加 --track 强制建立跟踪，保证检出后不会显示 "no upstream"。
         await withProgress(`Checking out ${item.ref.name}...`, () =>
-            runGit(item.repo, ['checkout', '-b', localName.trim(), `${remote}/${branch}`])
+            runGit(item.repo, ['checkout', '-b', localName.trim(), '--track', `${remote}/${branch}`])
         );
     });
 
