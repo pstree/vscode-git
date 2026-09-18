@@ -20,6 +20,12 @@ export interface CommitData {
     subject: string;
     date: string;
     author: string;
+    // Committer timestamp (seconds) — used to merge-sort commits across
+    // repositories in "all projects" mode (topo-order only works per repo).
+    ts?: number;
+    // Owning repository's root path — set only in "all projects" mode so each
+    // row can carry `data-repo` back to the host and show a project badge.
+    repoPath?: string;
 }
 
 export interface RowLayout {
@@ -166,13 +172,18 @@ export function renderCommitRows(commits: CommitData[], layouts: RowLayout[], sv
     return commits.map((c, i) => {
         const row = layouts[i];
         const parent = c.parents[0] ?? '';
+        // All-projects mode: rows carry their owning repo (so host-side actions
+        // route to the right repository) and show a small project-name badge.
+        const repoName = c.repoPath ? (c.repoPath.split(/[\\/]/).pop() || c.repoPath) : '';
+        const repoAttr = c.repoPath ? ` data-repo="${escapeHtml(c.repoPath)}"` : '';
+        const repoBadge = repoName ? `<span class="repo-badge">${escapeHtml(repoName)}</span> ` : '';
         // Pre-lowercased haystack for the client-side search filter (one read
         // per row instead of four dataset reads + four toLowerCase calls).
-        const search = (c.hash + '\n' + c.display + '\n' + c.subject + '\n' + c.author).toLowerCase();
-        return `<div class="commit-row" data-hash="${escapeHtml(c.hash)}" data-parent="${escapeHtml(parent)}" data-display="${escapeHtml(c.display)}" data-subject="${escapeHtml(c.subject)}" data-author="${escapeHtml(c.author)}" data-search="${escapeHtml(search)}">
+        const search = (c.hash + '\n' + c.display + '\n' + c.subject + '\n' + c.author + (repoName ? '\n' + repoName : '')).toLowerCase();
+        return `<div class="commit-row" data-hash="${escapeHtml(c.hash)}" data-parent="${escapeHtml(parent)}" data-display="${escapeHtml(c.display)}" data-subject="${escapeHtml(c.subject)}" data-author="${escapeHtml(c.author)}" data-search="${escapeHtml(search)}"${repoAttr}>
   <div class="col col-graph"><div class="graph-scroll">${renderRowSvg(row, svgWidth)}</div></div>
   <div class="col col-hash">${escapeHtml(c.display)}</div>
-  <div class="col col-subject" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</div>
+  <div class="col col-subject" title="${escapeHtml(c.subject)}">${repoBadge}${escapeHtml(c.subject)}</div>
   <div class="col col-author">${escapeHtml(c.author)}</div>
   <div class="col col-date">${escapeHtml(c.date)}</div>
 </div>`;

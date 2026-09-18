@@ -54,22 +54,38 @@ export function buildHistoryHtml(
     svgWidth: number, hasMore: boolean, scope: string, branches: string[],
     allSentinel: string, allowReset: boolean, filePath: string | undefined,
     lang: Lang,
+    // "All projects" mode: one merged history across every open repository.
+    repos: { path: string; name: string }[] = [], projectSelected = '',
+    allReposSentinel = '', allRepos = false,
 ): string {
     const rows = renderCommitRows(commits, layouts, svgWidth);
     const T = makeT(lang);
     const csp = baseCsp(cspSource) + ` script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data:;`;
 
+    // Project dropdown (left of the branch dropdown): "-- ALL PROJECTS --" merges
+    // every repository's history, then one entry per open repository.
+    const projectOptions = [
+        `<option value="${escapeHtml(allReposSentinel)}"${projectSelected === allReposSentinel ? ' selected' : ''}>${T('toolbar.allProjects')}</option>`,
+        ...repos.map(r => `<option value="${escapeHtml(r.path)}"${projectSelected === r.path ? ' selected' : ''} title="${escapeHtml(r.path)}">${escapeHtml(r.name)}</option>`),
+    ].join('\n      ');
+
     // Branch dropdown: the ref the user opened from first (always shown, even if
     // remote), then the remaining local branches, then the "-- ALL --" sentinel.
-    const seen = new Set<string>([ref]);
-    const options = [`<option value="${escapeHtml(ref)}"${scope === ref ? ' selected' : ''}>${escapeHtml(ref)}</option>`];
-    for (const b of branches) {
-        if (seen.has(b)) { continue; }
-        seen.add(b);
-        options.push(`<option value="${escapeHtml(b)}"${scope === b ? ' selected' : ''}>${escapeHtml(b)}</option>`);
-    }
-    options.push(`<option value="${escapeHtml(allSentinel)}"${scope === allSentinel ? ' selected' : ''}>${T('toolbar.allScope')}</option>`);
-    const branchOptions = options.join('\n      ');
+    // In "all projects" mode every branch of every repo is included, so the
+    // dropdown is reduced to a single (disabled) "-- ALL --" entry.
+    const branchOptions = allRepos
+        ? `<option value="${escapeHtml(allSentinel)}" selected>${T('toolbar.allScope')}</option>`
+        : (() => {
+            const seen = new Set<string>([ref]);
+            const options = [`<option value="${escapeHtml(ref)}"${scope === ref ? ' selected' : ''}>${escapeHtml(ref)}</option>`];
+            for (const b of branches) {
+                if (seen.has(b)) { continue; }
+                seen.add(b);
+                options.push(`<option value="${escapeHtml(b)}"${scope === b ? ' selected' : ''}>${escapeHtml(b)}</option>`);
+            }
+            options.push(`<option value="${escapeHtml(allSentinel)}"${scope === allSentinel ? ' selected' : ''}>${T('toolbar.allScope')}</option>`);
+            return options.join('\n      ');
+        })();
 
     const short = filePath ? (filePath.split('/').pop() || filePath) : '';
     const fileChip = filePath
@@ -114,7 +130,7 @@ export function buildHistoryHtml(
     letter-spacing: 0.03em;
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   }
-  .branch-select {
+  .repo-select, .branch-select {
     background: var(--vscode-input-background, var(--vscode-editor-background));
     color: var(--vscode-input-foreground, var(--vscode-foreground));
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
@@ -124,9 +140,10 @@ export function buildHistoryHtml(
     max-width: 360px;
     cursor: pointer;
   }
-  .branch-select:focus {
+  .repo-select:focus, .branch-select:focus {
     outline: 1px solid var(--vscode-focusBorder); outline-offset: 0;
   }
+  .repo-select:disabled, .branch-select:disabled { opacity: 0.6; cursor: default; }
   .history-search {
     margin-left: auto;
     background: var(--vscode-input-background, var(--vscode-editor-background));
@@ -228,6 +245,13 @@ export function buildHistoryHtml(
   .graph-scroll::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, rgba(128,128,128,.3)); }
 
   .history-head .col-subject, .commit-row .col-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* All-projects mode: small project-name badge before the commit subject */
+  .repo-badge {
+    display: inline-block; margin-right: 6px; padding: 0 6px;
+    border-radius: 8px; font-size: 10px; line-height: 15px; vertical-align: 1px;
+    background: var(--vscode-badge-background, rgba(128,128,128,.18));
+    color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground));
+  }
   .col-hash   { color: #e5c07b; font-weight: bold; overflow: hidden; text-overflow: ellipsis; }
   .col-date   { color: var(--vscode-descriptionForeground); text-align: left; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .col-author { color: #61afef; overflow: hidden; text-overflow: ellipsis; }
@@ -328,7 +352,10 @@ export function buildHistoryHtml(
 <div class="top">
   <div class="toolbar">
     <span class="toolbar-title">${T('toolbar.title')}</span>
-    <select class="branch-select" id="branch-select" title="${T('toolbar.branchTitle')}">
+    <select class="repo-select" id="repo-select" title="${T('toolbar.projectTitle')}">
+      ${projectOptions}
+    </select>
+    <select class="branch-select" id="branch-select" title="${T('toolbar.branchTitle')}"${allRepos ? ' disabled' : ''}>
       ${branchOptions}
     </select>
     ${fileChip}
@@ -424,6 +451,7 @@ export function buildHistoryHtml(
   const topToolbarEl = document.querySelector('.top .toolbar');
   const historyHeadEl = document.querySelector('.history-head');
   const branchSelect = document.getElementById('branch-select');
+  const repoSelect = document.getElementById('repo-select');
   const viewToggle = document.getElementById('view-toggle');
   const exportPatchBtn = document.getElementById('export-patch');
   const loadMoreEl = document.getElementById('load-more');
@@ -444,6 +472,9 @@ export function buildHistoryHtml(
 
   let currentHash = null;
   let currentParent = null;
+  // Owning repository (root path) of the selected commit row — set in
+  // "all projects" mode so every commit-scoped message routes to the right repo.
+  let currentRepo = null;
   let compareWorktree = false; // when true, file clicks diff the commit against the live working tree
 
   // File-scoped history: when the user switches the branch dropdown away from
@@ -453,6 +484,9 @@ export function buildHistoryHtml(
   // branch". initialRef is the branch the view was opened with; currentScope
   // tracks the dropdown selection (updated when the host confirms a scope change).
   const fileScoped = ${!!filePath};
+  // All-projects mode: the branch dropdown stays disabled (every branch of every
+  // repo is included; there is no per-branch scope to pick).
+  const allReposMode = ${allRepos};
   const initialRef = ${JSON.stringify(ref)};
   let currentScope = ${JSON.stringify(scope)};
   function shouldWorktreeCompare() {
@@ -519,6 +553,7 @@ export function buildHistoryHtml(
     if (sel.length === 0) {
       currentHash = null;
       currentParent = null;
+      currentRepo = null;
       infoEl.textContent = '';
       showFilesEmpty(t('empty.selectCommit'));
       refreshExportButton();
@@ -528,6 +563,7 @@ export function buildHistoryHtml(
       const row = sel[0];
       currentHash = row.dataset.hash;
       currentParent = row.dataset.parent || '';
+      currentRepo = row.dataset.repo || null;
       let info = '<span class="hash">' + escapeHtml(row.dataset.display) + '</span>';
       if (compareWorktree) {
         info += ' <span class="vs-worktree">' + t('info.vsWorktree') + '</span>';
@@ -536,9 +572,9 @@ export function buildHistoryHtml(
       showFilesEmpty(t('state.loading'));
       if (compareWorktree) {
         // List the files that differ between this commit and the working tree.
-        vscode.postMessage({ type: 'selectCommitWorktree', hash: currentHash });
+        vscode.postMessage({ type: 'selectCommitWorktree', hash: currentHash, repo: currentRepo });
       } else {
-        vscode.postMessage({ type: 'selectCommit', hash: currentHash, parent: currentParent });
+        vscode.postMessage({ type: 'selectCommit', hash: currentHash, parent: currentParent, repo: currentRepo });
       }
       refreshExportButton();
       return;
@@ -547,13 +583,14 @@ export function buildHistoryHtml(
     const range = currentRange();
     currentHash = null;
     currentParent = null;
+    currentRepo = sel[0].dataset.repo || null; // newest row's repo (cross-repo ranges resolve against it)
     const shortFrom = (sel[sel.length - 1].dataset.display || range.from.slice(0, 8));
     const shortTo   = (sel[0].dataset.display || range.to.slice(0, 8));
     infoEl.innerHTML =
       '<span class="hash">' + escapeHtml(shortFrom) + '..' + escapeHtml(shortTo) + '</span>' +
       sel.length + t('info.rangeDiff');
     showFilesEmpty(t('state.loading'));
-    vscode.postMessage({ type: 'selectRange', fromHash: range.from, toHash: range.to });
+    vscode.postMessage({ type: 'selectRange', fromHash: range.from, toHash: range.to, repo: currentRepo });
     refreshExportButton();
   }
 
@@ -601,20 +638,20 @@ export function buildHistoryHtml(
     if (!btn || !currentHash || currentRange()) { return; }
     // When in worktree-compare mode, carry that flag through so the new tab
     // diffs the commit against the live working tree (not its parent).
-    vscode.postMessage({ type: 'openCommitDiffTab', hash: currentHash, parent: currentParent, compareWorktree: compareWorktree });
+    vscode.postMessage({ type: 'openCommitDiffTab', hash: currentHash, parent: currentParent, compareWorktree: compareWorktree, repo: currentRepo });
   });
 
   // Export Patch button on the Files Changed title bar.
   exportPatchBtn.addEventListener('click', () => {
     const range = currentRange();
     if (range) {
-      vscode.postMessage({ type: 'exportPatch', hashes: [range.from, range.to] });
+      vscode.postMessage({ type: 'exportPatch', hashes: [range.from, range.to], repo: currentRepo });
     } else if (currentHash) {
       if (compareWorktree) {
         // Working-tree comparison: export the diff between the commit and the live working tree.
-        vscode.postMessage({ type: 'exportWorktreePatch', hash: currentHash });
+        vscode.postMessage({ type: 'exportWorktreePatch', hash: currentHash, repo: currentRepo });
       } else {
-        vscode.postMessage({ type: 'exportPatch', hashes: [currentHash] });
+        vscode.postMessage({ type: 'exportPatch', hashes: [currentHash], repo: currentRepo });
       }
     }
   });
@@ -668,6 +705,7 @@ export function buildHistoryHtml(
         status: row.dataset.status,
         path: row.dataset.path,
         oldPath: row.dataset.old || undefined,
+        repo: currentRepo,
       });
     } else if (currentHash) {
       vscode.postMessage({
@@ -678,6 +716,7 @@ export function buildHistoryHtml(
         path: row.dataset.path,
         oldPath: row.dataset.old || undefined,
         compareWorktree: compareWorktree,
+        repo: currentRepo,
       });
     }
   });
@@ -728,13 +767,14 @@ export function buildHistoryHtml(
         btn.disabled = false;
         btn.textContent = t('btn.loadMoreRetry', m.error || 'unknown');
       }
-      branchSelect.disabled = false;
+      branchSelect.disabled = allReposMode;
     } else if (m?.type === 'resetCommits') {
       // Scope changed — replace all rows, reset selection & file panel
       commitsEl.innerHTML = m.rowsHtml;
       anchorRow = null;
       currentHash = null;
       currentParent = null;
+      currentRepo = null;
       currentScope = m.scope;
       // File-scoped history: after switching away from the original branch,
       // commits compare against the working tree (file vs other branch).
@@ -745,7 +785,7 @@ export function buildHistoryHtml(
       showFilesEmpty(t('empty.selectCommit'));
       // Sync dropdown to confirmed scope, re-enable it
       if (branchSelect.value !== m.scope) { branchSelect.value = m.scope; }
-      branchSelect.disabled = false;
+      branchSelect.disabled = allReposMode;
       renderLoadMore(m.hasMore);
       applySearchFilter();
       syncHeaderTop();
@@ -758,6 +798,12 @@ export function buildHistoryHtml(
   branchSelect.addEventListener('change', () => {
     branchSelect.disabled = true;
     vscode.postMessage({ type: 'setScope', scope: branchSelect.value });
+  });
+
+  // Project dropdown — switch to another repository, or the "-- ALL PROJECTS --"
+  // sentinel that merges every repository's history into one list.
+  repoSelect.addEventListener('change', () => {
+    vscode.postMessage({ type: 'setProject', project: repoSelect.value });
   });
 
   // File-scope chip — clear the file filter and return to full branch history.
@@ -830,6 +876,7 @@ export function buildHistoryHtml(
       ctxTarget = {
         kind: 'multi',
         hashes: sel.map(r => r.dataset.hash),
+        repo: sel[0].dataset.repo || '',
       };
       showCtxMenu(multiCtxMenu, e.clientX, e.clientY);
       return;
@@ -841,6 +888,7 @@ export function buildHistoryHtml(
       parent: row.dataset.parent || '',
       subject: row.dataset.subject || '',
       display: row.dataset.display || '',
+      repo: row.dataset.repo || '',
     };
     showCtxMenu(commitCtxMenu, e.clientX, e.clientY);
   });
@@ -865,6 +913,7 @@ export function buildHistoryHtml(
         hash: ctxTarget.hash,
         parent: ctxTarget.parent,
         subject: ctxTarget.subject,
+        repo: ctxTarget.repo,
       });
     }
     hideCtxMenus();
@@ -874,7 +923,7 @@ export function buildHistoryHtml(
     const item = e.target.closest('.item');
     if (!item || !ctxTarget || ctxTarget.kind !== 'multi') { return; }
     if (item.dataset.action === 'exportPatch') {
-      vscode.postMessage({ type: 'exportPatch', hashes: ctxTarget.hashes });
+      vscode.postMessage({ type: 'exportPatch', hashes: ctxTarget.hashes, repo: ctxTarget.repo });
     } else if (item.dataset.action === 'copyHashes') {
       vscode.postMessage({ type: 'copyHashes', hashes: ctxTarget.hashes });
     }
@@ -922,6 +971,7 @@ export function buildHistoryHtml(
         parent: currentParent || '',
         files: ctxTarget.files,
         compareWorktree: compareWorktree,
+        repo: currentRepo,
       });
     } else if (action === 'compareWorktree') {
       // Compare each selected file against the live working-tree file.
@@ -932,6 +982,7 @@ export function buildHistoryHtml(
           path: f.path,
           oldPath: f.oldPath,
           status: f.status,
+          repo: currentRepo,
         });
       }
     }

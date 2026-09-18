@@ -8,18 +8,23 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { getDict, resolveLang, t } from '../shared/i18n';
-import { GitApi, Repository } from '../gitApi';
 import type { BranchItem } from '../branchTreeProvider';
+import { GitApi, Repository } from '../gitApi';
+import { getDict, resolveLang, t } from '../shared/i18n';
 import { errText, findRepoForFile } from '../shared/ui';
 
 import { execFileAsync, getChangedFiles, getChangedFilesBetween, getChangedFilesVsWorktree, getCommitDiff, getFileFromCommit, getGitPath, SHOW_MAX_BUFFER } from '../git/gitClient';
-import { CommitData, LANE_W, RowLayout, computeLayout, createLayoutState, renderCommitRows } from './graph';
-import { buildHistoryHtml, errorHistoryHtml, placeholderHistoryHtml } from './historyHtml';
-import { openCommitFileDiff, openRangeFileDiff, openCompareWithWorktree } from './commitFileProvider';
 import { exportPatches, exportWorktreePatch, handleCommitAction } from './commitActions';
+import { openCommitFileDiff, openCompareWithWorktree, openRangeFileDiff } from './commitFileProvider';
+import { CommitData, computeLayout, createLayoutState, LANE_W, renderCommitRows, RowLayout } from './graph';
+import { buildHistoryHtml, errorHistoryHtml, placeholderHistoryHtml } from './historyHtml';
 
 export const HISTORY_VIEW_TYPE = 'gitBranches.historyView';
+
+// Merge order for all-projects mode: committer timestamp descending, hash as a
+// stable tie-break for identical timestamps.
+const isNewerCommit = (a: CommitData, b: CommitData): boolean =>
+    (a.ts ?? 0) !== (b.ts ?? 0) ? (a.ts ?? 0) > (b.ts ?? 0) : a.hash < b.hash;
 
 export class HistoryViewProvider implements vscode.WebviewViewProvider {
     constructor(
@@ -52,7 +57,9 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         if (!view) { return; }
         const lang = resolveLang(vscode.env.language);
         view.webview.postMessage({ type: 'i18n', dict: getDict(lang) });
-        if (this.repo && this.fullRef) {
+        if (this.allMode) {
+            await this.loadAll();
+        } else if (this.repo && this.fullRef) {
             await this.loadSession(this.repo, this.fullRef, this.filePath);
         } else {
             view.webview.html = placeholderHistoryHtml(view.webview.cspSource, lang);
@@ -84,6 +91,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     private static readonly PAGE_SIZE = 200;
     private static readonly SEP = '\x01';
     private static readonly ALL_SENTINEL = '__ALL__';
+    private static readonly ALL_REPOS_SENTINEL = '__ALL_REPOS__';
     // Commit actions that mutate history and therefore require a list reload.
     private static readonly RELOAD_ACTIONS = new Set(['resetSoft', 'resetHard', 'revert', 'cherryPick', 'createBranch', 'checkout']);
 
@@ -98,10 +106,19 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     private layoutState = createLayoutState();
     private loadedCount = 0;
     private currentSvgWidth = LANE_W;
-    // Bumped whenever loadSession()/setScope() starts a new scope. In-flight
+    // Bumped whenever loadSession()/setScope()/loadAll() starts a new scope. In-flight
     // async loads capture the generation before awaiting and abandon their
     // result if it changed, so a late response can't corrupt the new scope.
     private sessionGen = 0;
+    // "All projects" mode: one merged history across every open repository.
+    // Commits are fetched per repo and k-way merged by committer timestamp
+    // (topo-order is meaningless across repositories). `allRepos` snapshots the
+    // repositories at session start so the per-repo pagination cursors stay stable.
+    private allMode = false;
+    private allRepos: Repository[] = [];
+    private allRepoCursor = new Map<string, number>();
+    private allRepoBuffer = new Map<string, CommitData[]>();
+    private allRepoHasMore = false;
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this.view = webviewView;
@@ -157,6 +174,12 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
 
     private async fetchCommits(scope: string, skip: number, count: number): Promise<CommitData[]> {
         if (!this.repo) { return []; }
+        return this.fetchCommitsFromRepo(this.repo, scope, skip, count, this.filePath);
+    }
+
+    // One `git log` page within a single repository. `filePath` scopes the log to
+    // a path (single-repo file history only — all-projects mode has no path).
+    private async fetchCommitsFromRepo(repo: Repository, scope: string, skip: number, count: number, filePath?: string): Promise<CommitData[]> {
         const SEP = HistoryViewProvider.SEP;
         const ALL_SENTINEL = HistoryViewProvider.ALL_SENTINEL;
         const args = [
@@ -164,15 +187,16 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             `--skip=${skip}`,
             `--max-count=${count}`,
             `--date=format-local:%Y-%m-%d %H:%M`,
-            `--pretty=format:%H${SEP}%h${SEP}%P${SEP}%D${SEP}%s${SEP}%ad${SEP}%an`,
+            // %ct (committer timestamp) orders the merge across repositories.
+            `--pretty=format:%H${SEP}%h${SEP}%P${SEP}%D${SEP}%s${SEP}%ad${SEP}%an${SEP}%ct`,
         ];
         if (scope === ALL_SENTINEL) {
             args.push('--all');
         } else {
             args.push(scope);
         }
-        if (this.filePath) { args.push('--', this.filePath); }
-        const { stdout } = await execFileAsync(getGitPath(), args, { cwd: this.repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
+        if (filePath) { args.push('--', filePath); }
+        const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
         return stdout.trim().split('\n').filter(Boolean).map(line => {
             const parts = line.split(SEP);
             return {
@@ -183,8 +207,52 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 subject: parts[4] ?? '',
                 date:    parts[5] ?? '',
                 author:  parts[6] ?? '',
+                ts:      parseInt(parts[7] ?? '', 10) || 0,
             };
         });
+    }
+
+    // Next merged page across every repository (all-projects mode). Each repo
+    // keeps its own buffer + skip cursor; before every take each buffer is
+    // topped up to `count` items, which guarantees the k-way take of the `count`
+    // newest commits (by committer timestamp) is globally ordered across pages.
+    private async fetchCommitsAll(count: number): Promise<CommitData[]> {
+        await Promise.all(this.allRepos.map(async repo => {
+            const key = repo.rootUri.fsPath;
+            let buf = this.allRepoBuffer.get(key) ?? [];
+            while (buf.length < count) {
+                const want = count - buf.length;
+                const cursor = this.allRepoCursor.get(key) ?? 0;
+                const batch = await this.fetchCommitsFromRepo(repo, HistoryViewProvider.ALL_SENTINEL, cursor, want);
+                this.allRepoCursor.set(key, cursor + batch.length);
+                buf = buf.concat(batch.map(c => ({ ...c, repoPath: key })));
+                if (batch.length < want) { break; } // repo exhausted
+            }
+            this.allRepoBuffer.set(key, buf);
+        }));
+        // K-way take: repeatedly emit the newest head across the repo buffers.
+        const out: CommitData[] = [];
+        const taken = new Map<string, number>();
+        while (out.length < count) {
+            let bestKey = '';
+            let best: CommitData | undefined;
+            for (const [key, buf] of this.allRepoBuffer) {
+                const head = buf[taken.get(key) ?? 0];
+                if (!head) { continue; }
+                if (!best || isNewerCommit(head, best)) { best = head; bestKey = key; }
+            }
+            if (!best) { break; }
+            taken.set(bestKey, (taken.get(bestKey) ?? 0) + 1);
+            out.push(best);
+        }
+        // Drop consumed heads; a repo with items left means more pages remain.
+        this.allRepoHasMore = false;
+        for (const [key, buf] of this.allRepoBuffer) {
+            const rest = buf.slice(taken.get(key) ?? 0);
+            this.allRepoBuffer.set(key, rest);
+            if (rest.length > 0) { this.allRepoHasMore = true; }
+        }
+        return out;
     }
 
     private bumpSvgWidth(layouts: RowLayout[]): void {
@@ -194,6 +262,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
 
     // (Re)load the view with the history of `fullRef` (optionally a single file).
     private async loadSession(repo: Repository, fullRef: string, filePath?: string): Promise<void> {
+        this.allMode = false;
+        this.allRepoCursor.clear();
+        this.allRepoBuffer.clear();
+        this.allRepoHasMore = false;
         this.repo = repo;
         this.fullRef = fullRef;
         this.filePath = filePath;
@@ -228,10 +300,60 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 this.currentSvgWidth, hasMore, this.scope, branches,
                 HistoryViewProvider.ALL_SENTINEL, allowReset, this.filePath,
                 resolveLang(vscode.env.language),
+                this.repoOptions(), repo.rootUri.fsPath,
+                HistoryViewProvider.ALL_REPOS_SENTINEL, false,
             );
         } catch (e: any) {
             view.webview.html = errorHistoryHtml(view.webview.cspSource, errText(e));
         }
+    }
+
+    // (Re)load the view with the merged history of every open repository
+    // ("All projects" in the project dropdown). The commit graph renders flat
+    // (lone dots) because commits from different repositories share no topology.
+    private async loadAll(): Promise<void> {
+        const view = this.view;
+        if (!view) { return; }
+        this.allMode = true;
+        this.repo = undefined;
+        this.fullRef = '';
+        this.filePath = undefined;
+        this.lastHeadName = undefined;
+        this.scope = HistoryViewProvider.ALL_SENTINEL;
+        this.allRepos = this.gitApi.repositories.slice();
+        this.allRepoCursor.clear();
+        this.allRepoBuffer.clear();
+        this.allRepoHasMore = false;
+        this.layoutState = createLayoutState();
+        this.currentSvgWidth = LANE_W;
+        this.loadedCount = 0;
+        const gen = ++this.sessionGen;
+
+        try {
+            const first = await this.fetchCommitsAll(HistoryViewProvider.PAGE_SIZE);
+            if (gen !== this.sessionGen) { return; }
+            const firstLayouts = computeLayout(first, this.layoutState, true);
+            this.bumpSvgWidth(firstLayouts);
+            this.loadedCount = first.length;
+            view.webview.html = buildHistoryHtml(
+                first, firstLayouts, '', view.webview.cspSource,
+                this.currentSvgWidth, this.allRepoHasMore, this.scope, [],
+                HistoryViewProvider.ALL_SENTINEL, false, undefined,
+                resolveLang(vscode.env.language),
+                this.repoOptions(), HistoryViewProvider.ALL_REPOS_SENTINEL,
+                HistoryViewProvider.ALL_REPOS_SENTINEL, true,
+            );
+        } catch (e: any) {
+            view.webview.html = errorHistoryHtml(view.webview.cspSource, errText(e));
+        }
+    }
+
+    // Project dropdown entries: one per open repository (folder name; full path as tooltip).
+    private repoOptions(): { path: string; name: string }[] {
+        return this.gitApi.repositories.map(r => ({
+            path: r.rootUri.fsPath,
+            name: r.rootUri.fsPath.split(/[\\/]/).pop() || r.rootUri.fsPath,
+        }));
     }
 
     /**
@@ -240,40 +362,109 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
      * History list reflects the newly pulled commits.
      */
     async refreshIfMatches(repo: Repository, refName: string): Promise<void> {
-        if (!this.view || !this.repo) { return; }
+        if (!this.view) { return; }
+        if (this.allMode) {
+            // Merged view: refresh when the touched repository is part of it.
+            if (!this.allRepos.includes(repo)) { return; }
+            await this.loadAll();
+            return;
+        }
+        if (!this.repo) { return; }
         if (this.repo.rootUri.fsPath !== repo.rootUri.fsPath) { return; }
         if (this.fullRef !== refName) { return; }
         await this.loadSession(this.repo, this.fullRef, this.filePath);
     }
 
+    // Resolve the repository a webview message refers to. Single-project sessions
+    // always use the session repo; all-projects sessions route per commit via the
+    // row's `data-repo` (repo root path echoed back by the webview).
+    private repoFor(msg: any): Repository | undefined {
+        if (!this.allMode) { return this.repo; }
+        const p = String(msg?.repo ?? '');
+        return this.allRepos.find(r => r.rootUri.fsPath === p);
+    }
+
     private async handleMessage(msg: any): Promise<void> {
         const view = this.view;
-        const repo = this.repo;
-        if (!view || !repo) { return; }
+        if (!view) { return; }
 
         // Thin dispatch: each message type maps to one small handler below, so no
-        // single method grows into a long if/else chain.
+        // single method grows into a long if/else chain. Commit-scoped messages
+        // carry their owning repo path and resolve through repoFor().
         switch (msg?.type) {
-            case 'selectCommit': return this.postChangedFiles(view, { type: 'files', hash: msg.hash }, () =>
-                getChangedFiles(repo, msg.hash, msg.parent, this.filePath));
-            case 'selectCommitWorktree': return this.postChangedFiles(view, { type: 'files', hash: msg.hash }, () =>
-                getChangedFilesVsWorktree(repo, msg.hash, this.filePath));
-            case 'selectCommitDiff': return this.postChangedFiles(view, { type: 'commitDiff', hash: msg.hash }, () =>
-                getCommitDiff(repo, msg.hash, msg.parent, this.filePath));
-            case 'selectRange': return this.postChangedFiles(view,
-                { type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash }, () =>
-                    getChangedFilesBetween(repo, msg.fromHash, msg.toHash, this.filePath));
-            case 'openCommitDiffTab': return this.openCommitDiffTab(msg, repo);
-            case 'openFile': return this.openFile(msg, repo);
-            case 'compareWorktree': return this.compareFileWorktree(msg, repo);
+            case 'selectCommit': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.postChangedFiles(view, { type: 'files', hash: msg.hash }, () =>
+                    getChangedFiles(repo, msg.hash, msg.parent, this.filePath));
+            }
+            case 'selectCommitWorktree': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.postChangedFiles(view, { type: 'files', hash: msg.hash }, () =>
+                    getChangedFilesVsWorktree(repo, msg.hash, this.filePath));
+            }
+            case 'selectCommitDiff': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.postChangedFiles(view, { type: 'commitDiff', hash: msg.hash }, () =>
+                    getCommitDiff(repo, msg.hash, msg.parent, this.filePath));
+            }
+            case 'selectRange': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.postChangedFiles(view,
+                    { type: 'rangeFiles', fromHash: msg.fromHash, toHash: msg.toHash }, () =>
+                        getChangedFilesBetween(repo, msg.fromHash, msg.toHash, this.filePath));
+            }
+            case 'openCommitDiffTab': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.openCommitDiffTab(msg, repo);
+            }
+            case 'openFile': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.openFile(msg, repo);
+            }
+            case 'compareWorktree': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.compareFileWorktree(msg, repo);
+            }
             case 'loadMore': return this.loadMore(view);
             case 'setScope': return this.setScope(msg, view);
-            case 'openFileHistory': return this.openFileHistory(msg, repo);
-            case 'clearFileScope': return this.show(repo, this.fullRef, undefined);
-            case 'commitAction': return this.commitAction(msg, repo);
-            case 'exportPatch': return this.exportPatch(msg, repo);
-            case 'exportWorktreePatch': return this.exportWorktreePatch(msg, repo);
-            case 'getFile': return this.getFile(msg, repo, view);
+            case 'setProject': return this.setProject(msg);
+            case 'openFileHistory': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.openFileHistory(msg, repo);
+            }
+            case 'clearFileScope': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.show(repo, this.fullRef, undefined);
+            }
+            case 'commitAction': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.commitAction(msg, repo);
+            }
+            case 'exportPatch': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.exportPatch(msg, repo);
+            }
+            case 'exportWorktreePatch': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.exportWorktreePatch(msg, repo);
+            }
+            case 'getFile': {
+                const repo = this.repoFor(msg);
+                if (!repo) { return; }
+                return this.getFile(msg, repo, view);
+            }
             case 'copyHashes': return this.copyHashes(msg);
             default: return; // unknown type — ignore
         }
@@ -347,6 +538,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
     }
 
     private async loadMore(view: vscode.WebviewView): Promise<void> {
+        if (this.allMode) { return this.loadMoreAll(view); }
         try {
             const gen = this.sessionGen;
             const next = await this.fetchCommits(this.scope, this.loadedCount, HistoryViewProvider.PAGE_SIZE);
@@ -366,7 +558,28 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private async loadMoreAll(view: vscode.WebviewView): Promise<void> {
+        try {
+            const gen = this.sessionGen;
+            const next = await this.fetchCommitsAll(HistoryViewProvider.PAGE_SIZE);
+            if (gen !== this.sessionGen) { return; }
+            const nextLayouts = computeLayout(next, this.layoutState, true);
+            this.bumpSvgWidth(nextLayouts);
+            this.loadedCount += next.length;
+            view.webview.postMessage({
+                type: 'moreCommits',
+                rowsHtml: renderCommitRows(next, nextLayouts, this.currentSvgWidth),
+                svgWidth: this.currentSvgWidth,
+                added: next.length,
+                hasMore: this.allRepoHasMore,
+            });
+        } catch (e: any) {
+            view.webview.postMessage({ type: 'loadMoreError', error: errText(e) });
+        }
+    }
+
     private async setScope(msg: any, view: vscode.WebviewView): Promise<void> {
+        if (this.allMode) { return; } // branch dropdown is disabled in all-projects mode
         const newScope = String(msg.scope ?? '');
         if (!newScope || newScope === this.scope) { return; }
         const gen = ++this.sessionGen;
@@ -393,9 +606,31 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    // Project dropdown: switch to a single repository, or merge every repository.
+    // Switching projects drops the file filter (a file path is repo-specific).
+    private async setProject(msg: any): Promise<void> {
+        const project = String(msg?.project ?? '');
+        if (project === HistoryViewProvider.ALL_REPOS_SENTINEL) {
+            if (this.allMode) { return; }
+            await this.loadAll();
+            return;
+        }
+        const repo = this.gitApi.repositories.find(r => r.rootUri.fsPath === project);
+        if (!repo) { return; }
+        if (!this.allMode && this.repo?.rootUri.fsPath === project) {
+            // Same repository — only re-scope when a file filter is active (clears it).
+            if (!this.filePath) { return; }
+            await this.show(repo, this.fullRef, undefined);
+            return;
+        }
+        await this.show(repo, repo.state.HEAD?.name ?? 'HEAD', undefined);
+    }
+
     // Re-scope this same docked view to a single file's history.
     private async openFileHistory(msg: any, repo: Repository): Promise<void> {
-        const ref = (this.scope === HistoryViewProvider.ALL_SENTINEL ? this.fullRef : this.scope) || this.fullRef;
+        const ref = this.allMode
+            ? (repo.state.HEAD?.name ?? 'HEAD')
+            : ((this.scope === HistoryViewProvider.ALL_SENTINEL ? this.fullRef : this.scope) || this.fullRef);
         const fp = msg.filePath ?? msg.path;
         if (fp) { await this.show(repo, ref, String(fp)); }
     }
@@ -419,7 +654,17 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         // Reload the list so the change is visible — otherwise the operation
         // succeeds silently and looks like "nothing happened".
         if (HistoryViewProvider.RELOAD_ACTIONS.has(action)) {
-            await this.loadSession(repo, this.fullRef, this.filePath);
+            await this.reloadCurrent();
+        }
+    }
+
+    // Reload whatever is currently shown: the merged all-projects view, or the
+    // single-repo session.
+    private async reloadCurrent(): Promise<void> {
+        if (this.allMode) {
+            await this.loadAll();
+        } else if (this.repo) {
+            await this.loadSession(this.repo, this.fullRef, this.filePath);
         }
     }
 

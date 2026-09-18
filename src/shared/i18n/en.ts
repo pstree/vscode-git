@@ -42,6 +42,8 @@ export default {
     'toolbar.exportPatch': 'Export Patch',
     'toolbar.viewDiff': 'Open all',
     'toolbar.allScope': '-- ALL --',
+    'toolbar.projectTitle': "Choose which project's history to show (All projects = aggregate every repository)",
+    'toolbar.allProjects': 'All projects',
     'toolbar.pathChip': 'Path',
     'table.hash': 'Hash',
     'table.message': 'Message',

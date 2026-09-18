@@ -42,6 +42,8 @@ export default {
     'toolbar.exportPatch': '导出补丁',
     'toolbar.viewDiff': '全部打开',
     'toolbar.allScope': '-- 全部 --',
+    'toolbar.projectTitle': '选择要显示历史的项目（全部项目 = 汇总所有仓库的历史）',
+    'toolbar.allProjects': '全部项目',
     'toolbar.pathChip': '路径',
     'table.hash': '哈希',
     'table.message': '提交说明',
