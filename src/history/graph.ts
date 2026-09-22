@@ -167,25 +167,72 @@ function renderRowSvg(row: RowLayout, svgWidth: number): string {
     return `<svg width="${svgWidth}" height="${ROW_H}" style="display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">${els.join('')}</svg>`;
 }
 
-/** Render the full commit list as `<div class="commit-row">` rows (graph cell + hash/subject/author/date/refs). */
-export function renderCommitRows(commits: CommitData[], layouts: RowLayout[], svgWidth: number): string {
+/**
+ * Turn a commit's `%D` decoration string into the Branch column's content:
+ * one chip per branch pointing at the commit, with the checked-out branch
+ * (`HEAD -> x`) highlighted. Tags and symbolic `HEAD` / `<remote>/HEAD` refs
+ * are dropped — the column is about branches.
+ */
+function renderRefChips(refs: string): { html: string; text: string } {
+    if (!refs) { return { html: '', text: '' }; }
+    const names: string[] = [];
+    let current = '';
+    for (const raw of refs.split(',')) {
+        const item = raw.trim();
+        if (!item || item.startsWith('tag: ')) { continue; }
+        const arrow = item.indexOf(' -> ');
+        if (arrow !== -1) {
+            // `HEAD -> main` is the checked-out branch; `origin/HEAD -> …` is a
+            // symbolic remote HEAD and not a branch of its own.
+            if (!item.startsWith('HEAD -> ')) { continue; }
+            const name = item.slice(arrow + 4).trim();
+            if (!name) { continue; }
+            if (!names.includes(name)) { names.push(name); }
+            current = name;
+            continue;
+        }
+        // Plain `HEAD` / `origin/HEAD`-style symbolic refs aren't branches.
+        if (item === 'HEAD' || item.endsWith('/HEAD')) { continue; }
+        if (!names.includes(item)) { names.push(item); }
+    }
+    const html = names
+        .map(n => `<span class="ref-chip${n === current ? ' ref-head' : ''}">${escapeHtml(n)}</span>`)
+        .join('');
+    return { html, text: names.join('  ') };
+}
+
+/**
+ * Render the full commit list as `<div class="commit-row">` rows (graph cell +
+ * hash / project / subject / author / date / branch). `showProject` adds the
+ * leading Project column used in "all projects" mode; it MUST match the header
+ * (a row cell without a matching header cell would shift the subject column).
+ */
+export function renderCommitRows(commits: CommitData[], layouts: RowLayout[], svgWidth: number, showProject = false): string {
     return commits.map((c, i) => {
         const row = layouts[i];
         const parent = c.parents[0] ?? '';
         // All-projects mode: rows carry their owning repo (so host-side actions
-        // route to the right repository) and show a small project-name badge.
+        // route to the right repository) and get a Project cell of their own —
+        // keeping the repo out of the subject cell so the message lines up with
+        // its column header.
         const repoName = c.repoPath ? (c.repoPath.split(/[\\/]/).pop() || c.repoPath) : '';
         const repoAttr = c.repoPath ? ` data-repo="${escapeHtml(c.repoPath)}"` : '';
-        const repoBadge = repoName ? `<span class="repo-badge">${escapeHtml(repoName)}</span> ` : '';
+        const projectCell = showProject
+            ? `\n  <div class="col col-project" title="${escapeHtml(c.repoPath ?? '')}"><span class="repo-badge">${escapeHtml(repoName)}</span></div>`
+            : '';
         // Pre-lowercased haystack for the client-side search filter (one read
-        // per row instead of four dataset reads + four toLowerCase calls).
-        const search = (c.hash + '\n' + c.display + '\n' + c.subject + '\n' + c.author + (repoName ? '\n' + repoName : '')).toLowerCase();
+        // per row instead of several dataset reads + toLowerCase calls). The
+        // author is deliberately excluded — it has its own dedicated filter box
+        // (which matches `data-author`).
+        const search = (c.hash + '\n' + c.display + '\n' + c.subject + (repoName ? '\n' + repoName : '')).toLowerCase();
+        const branches = renderRefChips(c.refs);
         return `<div class="commit-row" data-hash="${escapeHtml(c.hash)}" data-parent="${escapeHtml(parent)}" data-display="${escapeHtml(c.display)}" data-subject="${escapeHtml(c.subject)}" data-author="${escapeHtml(c.author)}" data-search="${escapeHtml(search)}"${repoAttr}>
   <div class="col col-graph"><div class="graph-scroll">${renderRowSvg(row, svgWidth)}</div></div>
-  <div class="col col-hash">${escapeHtml(c.display)}</div>
-  <div class="col col-subject" title="${escapeHtml(c.subject)}">${repoBadge}${escapeHtml(c.subject)}</div>
+  <div class="col col-hash">${escapeHtml(c.display)}</div>${projectCell}
+  <div class="col col-subject" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</div>
   <div class="col col-author">${escapeHtml(c.author)}</div>
   <div class="col col-date">${escapeHtml(c.date)}</div>
+  <div class="col col-branch" title="${escapeHtml(branches.text)}">${branches.html}</div>
 </div>`;
     }).join('');
 }

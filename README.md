@@ -46,17 +46,19 @@ Local branches with an upstream show their sync status: `↑2` (ahead), `↓3` (
 Open **View History** (right-click a branch, or in the editor / Explorer **Git History** on a file) to open a two-pane webview: a paginated commit table on top and a "files changed" panel at the bottom.
 
 - **Branch dropdown** — switch branch; `-- ALL --` shows the whole repo (`git log --all`). Selecting a file from the file tree scopes the list with a `Path:` chip (click `×` to return).
+- **Project chip** — in a multi-repo workspace the `Project:` pill above the list picks which repository to show; click `×` to drop the project filter and merge every repository (`All projects`).
 - **Pagination** — loads **200 commits/page** via `git log --skip=N --max-count=200`; per-page loading keeps large repos responsive.
 - **Commit graph** — leading lane graph, color-coded per lane, capped at 200px (scrolls if wider). Lane positions persist across pages.
-- **Select a commit** → the bottom panel lists its changed files with status badges (`A` / `M` / `D` / `R`,`C` / `T`).
+- **Select a commit** → the changed-files pane opens on the right listing its files with status badges (`A` / `M` / `D` / `R`,`C` / `T`). The pane stays collapsed until a commit is picked, and its `×` collapses it again so the commit list uses the full width.
 - **Click a file** → native side-by-side diff (left = parent, right = commit); title `path (shortHash)`. Content is served by the custom `gitbranches-show:` scheme via `git show <ref>:<path>`.
 - **Range diff** — Cmd/Ctrl-click a second commit row to diff commit A↔B; click again to return.
 - **Compare with working tree** — diff a commit against the live editable working file, using the built-in `<<` / `>>` transfer arrows to apply changes.
 - **Files Changed toolbar** — **Export Patch** (single commit or A↔B range) saves a `.patch`/`.diff`; **全部打开 (Open All)** opens every changed file as a native diff.
-- **Search / filter** — filters loaded commits in place by subject / author / hash; `Esc` clears. `-- ALL --` / multi-branch view for cross-branch file compare.
+- **Search / filter** — two boxes filter the loaded commits in place: subject / hash, plus a dedicated **author** box whose dropdown enumerates the authors found in the shown repositories; `Esc` clears. `-- ALL --` / multi-branch view for cross-branch file compare.
 - **Commit right-click menu** — Copy hash/subject, Checkout, Create branch from here, Cherry-pick, Revert, Compare with working tree, Reset (soft/hard), Export patch, Open in browser; multi-select for "Export as one patch" / "Copy hashes".
 - **File right-click menu** — GET 左侧旧版本 (restore the left/old version via `git checkout <hash> -- <path>`), Compare with working tree.
-- **Reference badges** — Refs column shows pills: `HEAD` teal, local branches green, remote branches red, tags yellow.
+- **Branch column** (last) — one chip per branch pointing at each commit; the checked-out branch (`HEAD -> …`, on the newest commit) is highlighted. Tags and the symbolic `origin/HEAD` entry are omitted.
+- **Project column** — only in the `All projects` view: each row shows the repository it came from as a badge, in its own column (before the message).
 - **Resizable splitter** — the height between table and file panel persists per workspace.
 
 ### Multi-repo workspace support

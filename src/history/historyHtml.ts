@@ -57,8 +57,11 @@ export function buildHistoryHtml(
     // "All projects" mode: one merged history across every open repository.
     repos: { path: string; name: string }[] = [], projectSelected = '',
     allReposSentinel = '', allRepos = false,
+    // Distinct authors across the shown repositories — populates the author
+    // filter's dropdown (an <input list> backed by a <datalist>).
+    authors: string[] = [],
 ): string {
-    const rows = renderCommitRows(commits, layouts, svgWidth);
+    const rows = renderCommitRows(commits, layouts, svgWidth, allRepos);
     const T = makeT(lang);
     const csp = baseCsp(cspSource) + ` script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data:;`;
 
@@ -68,6 +71,18 @@ export function buildHistoryHtml(
         `<option value="${escapeHtml(allReposSentinel)}"${projectSelected === allReposSentinel ? ' selected' : ''}>${T('toolbar.allProjects')}</option>`,
         ...repos.map(r => `<option value="${escapeHtml(r.path)}"${projectSelected === r.path ? ' selected' : ''} title="${escapeHtml(r.path)}">${escapeHtml(r.name)}</option>`),
     ].join('\n      ');
+
+    // The project chip is dismissible: its × drops the project filter and falls
+    // back to "All projects" (a merged history of every repository). There is
+    // nothing to clear while that merged mode is already active.
+    const projectChipClear = allRepos
+        ? ''
+        : `<button type="button" class="file-chip-clear" id="clear-repo" title="${T('toolbar.projectChipClear')}" aria-label="${T('toolbar.projectChipClearAria')}">×</button>`;
+
+    // Author filter suggestions: every author seen in the shown history.
+    const authorOptions = authors
+        .map(a => `<option value="${escapeHtml(a)}"></option>`)
+        .join('\n        ');
 
     // Branch dropdown: the ref the user opened from first (always shown, even if
     // remote), then the remaining local branches, then the "-- ALL --" sentinel.
@@ -120,6 +135,9 @@ export function buildHistoryHtml(
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
     border-left: 1px solid var(--vscode-panel-border);
   }
+  /* Collapsed until a commit is picked: hides the pane + splitter so the commit
+     list spans the full width. */
+  .bottom.hidden, .splitter.hidden { display: none; }
   .toolbar {
     position: sticky; top: 0; z-index: 10;
     padding: 6px 14px;
@@ -128,35 +146,64 @@ export function buildHistoryHtml(
     font-size: 12px; font-weight: 600;
     color: var(--vscode-descriptionForeground);
     letter-spacing: 0.03em;
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    /* Single line: the items shrink (down to their min-widths) instead of
+       wrapping, so the toolbar still fits when the changed-files pane narrows
+       the commit list. */
+    display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
   }
-  .repo-select, .branch-select {
+  .branch-select {
     background: var(--vscode-input-background, var(--vscode-editor-background));
     color: var(--vscode-input-foreground, var(--vscode-foreground));
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 4px;
     font-family: inherit; font-size: 12px; font-weight: 600;
     padding: 2px 6px;
-    max-width: 360px;
+    flex: 0 1 auto; min-width: 0; max-width: 240px;
     cursor: pointer;
   }
-  .repo-select:focus, .branch-select:focus {
+  .branch-select:focus {
     outline: 1px solid var(--vscode-focusBorder); outline-offset: 0;
   }
-  .repo-select:disabled, .branch-select:disabled { opacity: 0.6; cursor: default; }
-  .history-search {
-    margin-left: auto;
+  .branch-select:disabled { opacity: 0.6; cursor: default; }  /* Project chip: a pill wrapping the project picker plus its × (clear → "All
+     projects"). Mirrors the file-scope chip so both filters read alike. */
+  .repo-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 0 2px 0 8px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 11px;
+    background: var(--vscode-input-background, var(--vscode-editor-background));
+    flex: 0 1 auto; min-width: 0;
+  }
+  .repo-chip-pre { color: var(--vscode-descriptionForeground); font-size: 11px; font-weight: 400; white-space: nowrap; }
+  .repo-chip-select {
+    background: transparent;
+    color: var(--vscode-input-foreground, var(--vscode-foreground));
+    border: none;
+    font-family: inherit; font-size: 12px; font-weight: 600;
+    padding: 2px 2px;
+    min-width: 0; max-width: 180px;
+    cursor: pointer;
+  }
+  .repo-chip-select:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 0; }
+  .repo-chip-select:disabled { opacity: 0.6; cursor: default; }
+  /* Filters sit at the right end of the single toolbar row, author box first. */
+  .search-group { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+  .history-search, .author-search {
     background: var(--vscode-input-background, var(--vscode-editor-background));
     color: var(--vscode-input-foreground, var(--vscode-foreground));
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 4px;
     font-family: inherit; font-size: 12px; font-weight: 400;
     padding: 2px 8px;
-    width: 240px; min-width: 120px;
+    /* Narrower than before + a low min-width so both boxes shrink to keep the
+       whole toolbar on one line once the changed-files pane is open. */
+    flex: 0 1 auto;
+    width: 170px; min-width: 64px;
     letter-spacing: 0;
     -webkit-user-select: text; user-select: text;
   }
-  .history-search:focus {
+  .author-search { width: 130px; }
+  .history-search:focus, .author-search:focus {
     outline: 1px solid var(--vscode-focusBorder); outline-offset: 0;
   }
   .commit-row.filtered-out { display: none; }
@@ -185,10 +232,11 @@ export function buildHistoryHtml(
   .ctx-menu .item.disabled:hover { background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground)); }
   .ctx-menu .sep { height: 1px; margin: 4px 0; background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border)); }
 
-  .toolbar-title { color: var(--vscode-descriptionForeground); }
+  .toolbar-title { color: var(--vscode-descriptionForeground); flex: 0 0 auto; white-space: nowrap; }
   .toolbar-title > span { color: var(--vscode-foreground); }
   .file-chip {
     display: inline-flex; align-items: center; gap: 6px;
+    flex: 0 1 auto; min-width: 0;
     max-width: 320px; padding: 0 2px 0 8px; margin-left: 2px;
     border-radius: 11px;
     background: var(--vscode-badge-background, rgba(128,128,128,.18));
@@ -197,18 +245,34 @@ export function buildHistoryHtml(
   }
   .file-chip-pre { color: var(--vscode-descriptionForeground); }
   .file-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .file-chip-clear {
+  .file-chip-clear, .pane-close {
     border: none; background: transparent; cursor: pointer; color: inherit;
     font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 8px; opacity: .65;
   }
-  .file-chip-clear:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.25)); }
+  .file-chip-clear:hover, .pane-close:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.25)); }
+  /* Pushes the pane-collapse × to the far right of the files-toolbar. */
+  .pane-close { margin-left: auto; }
   /* Shared grid container so the sticky header and every commit row line up on
      the same column tracks. The non-subject columns use auto (content-based)
-     sizing, and subject uses minmax(0,1fr) to absorb the remaining width. */
+     sizing, and subject uses minmax(160px,1fr) so a wide trailing column can
+     never squeeze the message column to nothing.
+     Track lists are enumerated per mode because the Project column only exists
+     in "all projects" mode (body.has-project) and the Branch column only while
+     the changed-files pane is collapsed (body.hide-branch). */
   #history-grid {
     display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto auto minmax(160px, 1fr) auto auto minmax(0, max-content);
     align-items: center;
+  }
+  /* Project column, before the message (hash / project / subject / …). */
+  body.has-project #history-grid {
+    grid-template-columns: auto auto auto minmax(160px, 1fr) auto auto minmax(0, max-content);
+  }
+  body.hide-branch #history-grid {
+    grid-template-columns: auto auto minmax(160px, 1fr) auto auto;
+  }
+  body.has-project.hide-branch #history-grid {
+    grid-template-columns: auto auto auto minmax(160px, 1fr) auto auto;
   }
   #commits { display: contents; }
   .history-head, .commit-row {
@@ -245,16 +309,43 @@ export function buildHistoryHtml(
   .graph-scroll::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background, rgba(128,128,128,.3)); }
 
   .history-head .col-subject, .commit-row .col-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  /* All-projects mode: small project-name badge before the commit subject */
+  /* All-projects mode: small project-name badge, in its own Project column */
   .repo-badge {
     display: inline-block; margin-right: 6px; padding: 0 6px;
     border-radius: 8px; font-size: 10px; line-height: 15px; vertical-align: 1px;
+    white-space: nowrap;
     background: var(--vscode-badge-background, rgba(128,128,128,.18));
     color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground));
   }
   .col-hash   { color: #e5c07b; font-weight: bold; overflow: hidden; text-overflow: ellipsis; }
   .col-date   { color: var(--vscode-descriptionForeground); text-align: left; padding-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .col-author { color: #61afef; overflow: hidden; text-overflow: ellipsis; }
+  /* Project column ("all projects" mode only): one repo badge per row. */
+  .col-project { max-width: 160px; overflow: hidden; }
+  .col-project .repo-badge { margin-right: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  /* Branch column (last): one chip per branch pointing at the commit, capped so
+     a long ref list can't push the other columns off-screen. */
+  .col-branch {
+    max-width: 200px; overflow: hidden;
+    display: flex; align-items: center; gap: 4px;
+  }
+  /* While the changed-files pane is open the Branch column is dropped (its now
+     empty grid track is removed by the body.hide-branch track rule above). */
+  body.hide-branch .col-branch { display: none; }
+  .ref-chip {
+    display: inline-block; max-width: 150px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 0 6px; border-radius: 8px;
+    font-size: 10px; line-height: 15px; vertical-align: middle;
+    background: var(--vscode-badge-background, rgba(128,128,128,.18));
+    color: var(--vscode-badge-foreground, var(--vscode-descriptionForeground));
+  }
+  /* The branch HEAD is on — the "current branch" of the newest commit. */
+  .ref-chip.ref-head {
+    background: var(--vscode-charts-green, #98c379);
+    color: var(--vscode-editor-background, #1e1e1e);
+    font-weight: 600;
+  }
 
   .files-toolbar {
     position: sticky; top: 0; z-index: 5;
@@ -348,26 +439,38 @@ export function buildHistoryHtml(
   .view-toggle button:first-child { border-left: 0; }
 </style>
 </head>
-<body>
+<body${allRepos ? ' class="has-project"' : ''}>
 <div class="top">
   <div class="toolbar">
     <span class="toolbar-title">${T('toolbar.title')}</span>
-    <select class="repo-select" id="repo-select" title="${T('toolbar.projectTitle')}">
-      ${projectOptions}
-    </select>
+    <span class="repo-chip" id="repo-chip" title="${T('toolbar.projectTitle')}">
+      <span class="repo-chip-pre">${T('toolbar.projectChip')}</span>
+      <select class="repo-chip-select" id="repo-select" title="${T('toolbar.projectTitle')}">
+        ${projectOptions}
+      </select>
+      ${projectChipClear}
+    </span>
     <select class="branch-select" id="branch-select" title="${T('toolbar.branchTitle')}"${allRepos ? ' disabled' : ''}>
       ${branchOptions}
     </select>
     ${fileChip}
-    <input type="search" class="history-search" id="history-search" placeholder="${T('toolbar.searchPlaceholder')}" autocomplete="off" spellcheck="false" />
+    <span class="search-group">
+      <input type="search" class="author-search" id="author-search" list="author-list" placeholder="${T('toolbar.authorPlaceholder')}" title="${T('toolbar.authorTitle')}" autocomplete="off" spellcheck="false" />
+      <input type="search" class="history-search" id="history-search" placeholder="${T('toolbar.searchPlaceholder')}" autocomplete="off" spellcheck="false" />
+      <datalist id="author-list">
+        ${authorOptions}
+      </datalist>
+    </span>
   </div>
   <div id="history-grid">
     <div class="history-head">
       <div class="col col-graph" id="graph-th"></div>
       <div class="col col-hash">${T('table.hash')}</div>
+      ${allRepos ? `<div class="col col-project">${T('table.project')}</div>` : ''}
       <div class="col col-subject">${T('table.message')}</div>
       <div class="col col-author">${T('table.author')}</div>
       <div class="col col-date">${T('table.date')}</div>
+      <div class="col col-branch">${T('table.branch')}</div>
     </div>
     <div id="commits">${rows}</div>
   </div>
@@ -377,8 +480,8 @@ export function buildHistoryHtml(
       : `<span class="end-marker">${T('loadMore.end', commits.length)}</span>`}
   </div>
 </div>
-<div class="splitter" id="splitter"></div>
-<div class="bottom">
+<div class="splitter hidden" id="splitter"></div>
+<div class="bottom hidden" id="files-pane">
   <div class="files-toolbar">
     <span>${T('toolbar.filesChanged')}</span>
     <span class="commit-info" id="commit-info"></span>
@@ -387,6 +490,7 @@ export function buildHistoryHtml(
       <div class="view-toggle" id="view-toggle">
         <button type="button" data-view="diff">${T('toolbar.viewDiff')}</button>
       </div>
+      <button type="button" class="pane-close" id="close-files" title="${T('toolbar.closeFiles')}" aria-label="${T('toolbar.closeFilesAria')}">×</button>
     </div>
   </div>
   <div id="files"><div class="files-empty">${T('empty.selectCommit')}</div></div>
@@ -456,6 +560,9 @@ export function buildHistoryHtml(
   const exportPatchBtn = document.getElementById('export-patch');
   const loadMoreEl = document.getElementById('load-more');
   const searchInput = document.getElementById('history-search');
+  const authorInput = document.getElementById('author-search');
+  const authorList = document.getElementById('author-list');
+  const clearRepoBtn = document.getElementById('clear-repo');
   const splitter = document.getElementById('splitter');
   const commitCtxMenu = document.getElementById('commit-ctx-menu');
   const multiCtxMenu = document.getElementById('multi-ctx-menu');
@@ -466,6 +573,15 @@ export function buildHistoryHtml(
   // top value left a 1px gap above the header — measure it live instead.
   function syncHeaderTop() {
     historyHeadEl.style.top = (topToolbarEl.offsetHeight) + 'px';
+  }
+
+  // The changed-files pane stays collapsed (its × / the absence of a selection)
+  // until a commit is picked, so the commit list can use the full width. While
+  // the pane is open the Branch column is dropped to make room for it.
+  function setFilesPaneVisible(visible) {
+    bottomEl.classList.toggle('hidden', !visible);
+    splitter.classList.toggle('hidden', !visible);
+    document.body.classList.toggle('hide-branch', visible);
   }
   syncHeaderTop();
   window.addEventListener('resize', syncHeaderTop);
@@ -559,6 +675,8 @@ export function buildHistoryHtml(
       refreshExportButton();
       return;
     }
+    // Something is selected → reveal the changed-files pane.
+    setFilesPaneVisible(true);
     if (sel.length === 1) {
       const row = sel[0];
       currentHash = row.dataset.hash;
@@ -759,7 +877,7 @@ export function buildHistoryHtml(
       }
     } else if (m?.type === 'moreCommits') {
       commitsEl.insertAdjacentHTML('beforeend', m.rowsHtml);
-      applySearchFilter();
+      applyFilters();
       renderLoadMore(m.hasMore);
     } else if (m?.type === 'loadMoreError') {
       const btn = document.getElementById('load-more-btn');
@@ -783,11 +901,16 @@ export function buildHistoryHtml(
       refreshExportButton();
       infoEl.textContent = '';
       showFilesEmpty(t('empty.selectCommit'));
+      setFilesPaneVisible(false); // nothing selected in the new scope
       // Sync dropdown to confirmed scope, re-enable it
       if (branchSelect.value !== m.scope) { branchSelect.value = m.scope; }
       branchSelect.disabled = allReposMode;
       renderLoadMore(m.hasMore);
-      applySearchFilter();
+      // Scope change may bring authors the previous scope didn't have.
+      if (authorList && Array.isArray(m.authors)) {
+        authorList.innerHTML = m.authors.map(a => '<option value="' + escapeHtml(a) + '"></option>').join('');
+      }
+      applyFilters();
       syncHeaderTop();
       // Scroll to top of the table for the new scope
       topEl.scrollTop = 0;
@@ -806,6 +929,14 @@ export function buildHistoryHtml(
     vscode.postMessage({ type: 'setProject', project: repoSelect.value });
   });
 
+  // Project chip × — drop the project filter and merge every repository again.
+  if (clearRepoBtn) {
+    clearRepoBtn.addEventListener('click', () => {
+      repoSelect.value = ${JSON.stringify(allReposSentinel)};
+      vscode.postMessage({ type: 'setProject', project: ${JSON.stringify(allReposSentinel)} });
+    });
+  }
+
   // File-scope chip — clear the file filter and return to full branch history.
   const clearFileBtn = document.getElementById('clear-file');
   if (clearFileBtn) {
@@ -814,25 +945,42 @@ export function buildHistoryHtml(
     });
   }
 
-  // Search box — client-side filter over already-loaded commits.
+  // Changed-files pane × — collapse the pane so the commit list uses the full width.
+  const closeFilesBtn = document.getElementById('close-files');
+  if (closeFilesBtn) {
+    closeFilesBtn.addEventListener('click', () => setFilesPaneVisible(false));
+  }
+
+  // Search boxes — client-side filters over already-loaded commits. The general
+  // box matches the hash/subject haystack; the author box matches the author
+  // alone and offers the repositories' known authors as suggestions.
   let searchQuery = '';
-  function applySearchFilter() {
+  let authorQuery = '';
+  function applyFilters() {
     const q = searchQuery.trim().toLowerCase();
+    const a = authorQuery.trim().toLowerCase();
     const targets = commitsEl.querySelectorAll('.commit-row');
-    if (!q) {
-      targets.forEach(tr => tr.classList.remove('filtered-out'));
-      return;
-    }
-    // data-search is a pre-lowercased hash/display/subject/author haystack
-    // emitted by the host (graph.ts) — one attribute read per row.
-    targets.forEach(tr => tr.classList.toggle('filtered-out', !(tr.dataset.search || '').includes(q)));
+    targets.forEach(tr => {
+      // data-search is a pre-lowercased hash/display/subject/repo haystack
+      // emitted by the host (graph.ts) — one attribute read per row.
+      const okSearch = !q || (tr.dataset.search || '').includes(q);
+      const okAuthor = !a || (tr.dataset.author || '').toLowerCase().includes(a);
+      tr.classList.toggle('filtered-out', !(okSearch && okAuthor));
+    });
   }
   searchInput.addEventListener('input', () => {
     searchQuery = searchInput.value;
-    applySearchFilter();
+    applyFilters();
   });
   searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { searchInput.value = ''; searchQuery = ''; applySearchFilter(); }
+    if (e.key === 'Escape') { searchInput.value = ''; searchQuery = ''; applyFilters(); }
+  });
+  authorInput.addEventListener('input', () => {
+    authorQuery = authorInput.value;
+    applyFilters();
+  });
+  authorInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { authorInput.value = ''; authorQuery = ''; applyFilters(); }
   });
 
   // Right-click context menus (commit rows + file rows)

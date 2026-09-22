@@ -172,6 +172,30 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    // Distinct author names across `repos` for the same scope/path filter as the
+    // commit list, feeding the author filter's suggestion list. Best-effort: a
+    // repository that fails to enumerate simply contributes nothing.
+    private async listAuthors(repos: Repository[], scope: string, filePath?: string): Promise<string[]> {
+        const authors = new Set<string>();
+        await Promise.all(repos.map(async repo => {
+            try {
+                const args = ['log', '--format=%an'];
+                if (scope === HistoryViewProvider.ALL_SENTINEL) {
+                    args.push('--all');
+                } else if (scope) {
+                    args.push(scope);
+                }
+                if (filePath) { args.push('--', filePath); }
+                const { stdout } = await execFileAsync(getGitPath(), args, { cwd: repo.rootUri.fsPath, maxBuffer: SHOW_MAX_BUFFER });
+                for (const line of stdout.split('\n')) {
+                    const name = line.trim();
+                    if (name) { authors.add(name); }
+                }
+            } catch { /* ignore — no authors from this repository */ }
+        }));
+        return Array.from(authors).sort((a, b) => a.localeCompare(b));
+    }
+
     private async fetchCommits(scope: string, skip: number, count: number): Promise<CommitData[]> {
         if (!this.repo) { return []; }
         return this.fetchCommitsFromRepo(this.repo, scope, skip, count, this.filePath);
@@ -279,9 +303,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         const view = this.view;
         if (!view) { return; }
         try {
-            const [first, branches] = await Promise.all([
+            const [first, branches, authors] = await Promise.all([
                 this.fetchCommits(this.scope, 0, HistoryViewProvider.PAGE_SIZE),
                 this.listLocalBranches(),
+                this.listAuthors([repo], this.scope, this.filePath),
             ]);
             if (gen !== this.sessionGen) { return; }
             const firstLayouts = computeLayout(first, this.layoutState, !!this.filePath);
@@ -302,6 +327,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 resolveLang(vscode.env.language),
                 this.repoOptions(), repo.rootUri.fsPath,
                 HistoryViewProvider.ALL_REPOS_SENTINEL, false,
+                authors,
             );
         } catch (e: any) {
             view.webview.html = errorHistoryHtml(view.webview.cspSource, errText(e));
@@ -330,7 +356,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
         const gen = ++this.sessionGen;
 
         try {
-            const first = await this.fetchCommitsAll(HistoryViewProvider.PAGE_SIZE);
+            const [first, authors] = await Promise.all([
+                this.fetchCommitsAll(HistoryViewProvider.PAGE_SIZE),
+                this.listAuthors(this.allRepos, HistoryViewProvider.ALL_SENTINEL),
+            ]);
             if (gen !== this.sessionGen) { return; }
             const firstLayouts = computeLayout(first, this.layoutState, true);
             this.bumpSvgWidth(firstLayouts);
@@ -342,6 +371,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
                 resolveLang(vscode.env.language),
                 this.repoOptions(), HistoryViewProvider.ALL_REPOS_SENTINEL,
                 HistoryViewProvider.ALL_REPOS_SENTINEL, true,
+                authors,
             );
         } catch (e: any) {
             view.webview.html = errorHistoryHtml(view.webview.cspSource, errText(e));
@@ -568,7 +598,8 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             this.loadedCount += next.length;
             view.webview.postMessage({
                 type: 'moreCommits',
-                rowsHtml: renderCommitRows(next, nextLayouts, this.currentSvgWidth),
+                // All-projects rows carry the extra Project column.
+                rowsHtml: renderCommitRows(next, nextLayouts, this.currentSvgWidth, true),
                 svgWidth: this.currentSvgWidth,
                 added: next.length,
                 hasMore: this.allRepoHasMore,
@@ -588,7 +619,10 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             this.layoutState = createLayoutState();
             this.currentSvgWidth = LANE_W;
             this.loadedCount = 0;
-            const page = await this.fetchCommits(this.scope, 0, HistoryViewProvider.PAGE_SIZE);
+            const [page, authors] = await Promise.all([
+                this.fetchCommits(this.scope, 0, HistoryViewProvider.PAGE_SIZE),
+                this.listAuthors(this.repo ? [this.repo] : [], this.scope, this.filePath),
+            ]);
             if (gen !== this.sessionGen) { return; }
             const pageLayouts = computeLayout(page, this.layoutState, !!this.filePath);
             this.bumpSvgWidth(pageLayouts);
@@ -596,6 +630,7 @@ export class HistoryViewProvider implements vscode.WebviewViewProvider {
             view.webview.postMessage({
                 type: 'resetCommits',
                 scope: this.scope,
+                authors,
                 rowsHtml: renderCommitRows(page, pageLayouts, this.currentSvgWidth),
                 svgWidth: this.currentSvgWidth,
                 loadedCount: this.loadedCount,
