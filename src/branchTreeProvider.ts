@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { Branch, GitApi, Ref, Repository } from './gitApi';
-import { execFileAsync, getGitPath } from './git/gitClient';
+import { Branch, GitApi, Ref, RefType, Repository } from './gitApi';
+import { execFileAsync, getGitPath, listRemoteTags } from './git/gitClient';
 import { t } from './shared/i18n';
 
 // ---- Tree node types ----
@@ -347,16 +347,17 @@ export class BranchesProvider extends AbstractProvider {
 
 // ---- Tags provider with remote sync status ----
 
-type RemoteSyncData = {
-    // tag name → peeled commit hash (annotated tags resolve to their underlying commit)
-    localCommits: Map<string, string>;
-    // null = ls-remote failed (no network / no remote); key missing = tag not on remote
-    remoteCommits: Map<string, string> | null;
-};
+// Remote side of the sync check: tag name → commit hash as reported by the
+// remote. null = ls-remote failed (offline / no remote configured), which
+// suppresses the per-tag indicator instead of guessing.
+type RemoteTagMap = Map<string, string> | null;
 
 export class TagProvider extends AbstractProvider {
-    private syncCache = new Map<Repository, RemoteSyncData>();
-    private fetching = new Set<Repository>();
+    private syncCache = new Map<Repository, RemoteTagMap>();
+    // Bumped whenever a fresh sync starts for a repo. A slow `ls-remote` that
+    // started before a tag operation would otherwise finish after it and write
+    // its stale result back, leaving a freshly pushed tag marked "↑ not pushed".
+    private syncGen = new Map<Repository, number>();
 
     override invalidate(): void {
         this.syncCache.clear();
@@ -367,55 +368,45 @@ export class TagProvider extends AbstractProvider {
         }
     }
 
-    private async refreshTagSync(repo: Repository): Promise<void> {
-        if (this.fetching.has(repo)) { return; }
-        this.fetching.add(repo);
+    /**
+     * Local tags with the commit each one points at, read straight from disk with
+     * `for-each-ref`. The tree lists tags from here instead of `repo.getRefs()`:
+     * our tag commands run the git CLI directly, and the built-in extension's ref
+     * snapshot can lag behind — which made a new tag appear only after an
+     * unrelated refresh and a deleted one linger in the list.
+     */
+    private async listLocalTags(repo: Repository): Promise<Map<string, string>> {
+        const tags = new Map<string, string>();
         try {
-            // Resolve local tag → peeled commit. %(*objectname) is the dereferenced commit for
-            // annotated tags (empty for lightweight tags); %(objectname) is the tag object itself.
-            const localCommits = new Map<string, string>();
-            try {
-                const { stdout } = await execFileAsync(
-                    getGitPath(),
-                    ['for-each-ref', '--format=%(refname:short)|%(*objectname)|%(objectname)', 'refs/tags/'],
-                    { cwd: repo.rootUri.fsPath }
-                );
-                for (const line of stdout.trim().split('\n').filter(Boolean)) {
-                    const [name, peeled, obj] = line.split('|');
-                    localCommits.set(name, peeled || obj); // peeled wins for annotated tags
-                }
-            } catch { /* no tags or git unavailable */ }
-
-            // Fetch remote tag commits via ls-remote (network call; may fail).
-            let remoteCommits: Map<string, string> | null = null;
-            const remoteName = repo.state.remotes[0]?.name;
-            if (remoteName) {
-                try {
-                    const { stdout } = await execFileAsync(
-                        getGitPath(),
-                        ['ls-remote', '--tags', remoteName],
-                        { cwd: repo.rootUri.fsPath }
-                    );
-                    remoteCommits = new Map<string, string>();
-                    for (const line of stdout.trim().split('\n').filter(Boolean)) {
-                        const [commit, ref] = line.split('\t');
-                        if (!ref) { continue; }
-                        if (ref.endsWith('^{}')) {
-                            // Peeled annotated tag — use as the authoritative commit
-                            remoteCommits.set(ref.slice('refs/tags/'.length, -3), commit);
-                        } else {
-                            const name = ref.slice('refs/tags/'.length);
-                            if (!remoteCommits.has(name)) { remoteCommits.set(name, commit); }
-                        }
-                    }
-                } catch { /* network unavailable — remoteCommits stays null */ }
+            // %(*objectname) is the dereferenced commit of an annotated tag (empty
+            // for lightweight tags); %(objectname) is the tag object itself.
+            const { stdout } = await execFileAsync(
+                getGitPath(),
+                ['for-each-ref', '--sort=refname', '--format=%(refname:short)|%(*objectname)|%(objectname)', 'refs/tags/'],
+                { cwd: repo.rootUri.fsPath }
+            );
+            for (const line of stdout.trim().split('\n').filter(Boolean)) {
+                const [name, peeled, obj] = line.split('|');
+                if (name) { tags.set(name, peeled || obj || ''); } // peeled wins for annotated tags
             }
+        } catch { /* no tags or git unavailable */ }
+        return tags;
+    }
 
-            this.syncCache.set(repo, { localCommits, remoteCommits });
-            this.fireChange(); // re-render with sync status, without re-triggering invalidate
-        } finally {
-            this.fetching.delete(repo);
-        }
+    // Fetch remote tag commits via ls-remote (network call; null when unreachable).
+    private async fetchRemoteTags(repo: Repository): Promise<RemoteTagMap> {
+        const remoteName = repo.state.remotes[0]?.name;
+        if (!remoteName) { return null; }
+        return (await listRemoteTags(repo, remoteName)) ?? null;
+    }
+
+    private async refreshTagSync(repo: Repository): Promise<void> {
+        const gen = (this.syncGen.get(repo) ?? 0) + 1;
+        this.syncGen.set(repo, gen);
+        const remoteCommits = await this.fetchRemoteTags(repo);
+        if (this.syncGen.get(repo) !== gen) { return; } // superseded by a newer sync
+        this.syncCache.set(repo, remoteCommits);
+        this.fireChange(); // re-render with sync status, without re-triggering invalidate
     }
 
     async getChildren(element?: TreeNode): Promise<TreeNode[]> {
@@ -432,28 +423,29 @@ export class TagProvider extends AbstractProvider {
     }
 
     private async getTagsForRepo(repo: Repository): Promise<BranchItem[]> {
-        const refs = await repo.getRefs({ pattern: 'refs/tags/*' });
-        const sync = this.syncCache.get(repo);
+        // Listed from disk (see listLocalTags) so create/delete land in the tree
+        // immediately; the sync indicator comes from the cached ls-remote probe.
+        const localTags = await this.listLocalTags(repo);
+        const remoteCommits = this.syncCache.get(repo);
 
-        return refs
-            .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
-            .map(r => {
+        return Array.from(localTags.keys())
+            .sort((a, b) => a.localeCompare(b))
+            .map(name => {
                 let syncStatus: TagSyncStatus | undefined;
-                if (sync) {
-                    const localCommit  = sync.localCommits.get(r.name ?? '');
-                    const remoteCommit = sync.remoteCommits?.get(r.name ?? '');
-
-                    if (sync.remoteCommits === null) {
+                if (remoteCommits !== undefined) {
+                    const remoteCommit = remoteCommits?.get(name);
+                    if (remoteCommits === null) {
                         syncStatus = undefined; // remote unreachable — no indicator
                     } else if (remoteCommit === undefined) {
                         syncStatus = 'unpublished';
-                    } else if (localCommit === remoteCommit) {
+                    } else if (localTags.get(name) === remoteCommit) {
                         syncStatus = 'synced';
                     } else {
                         syncStatus = 'conflict';
                     }
                 }
-                return new BranchItem(r, repo, 'tag', undefined, syncStatus);
+                const ref: Ref = { type: RefType.Tag, name, commit: localTags.get(name) };
+                return new BranchItem(ref, repo, 'tag', undefined, syncStatus);
             });
     }
 }
@@ -491,6 +483,16 @@ function rowPresentation(args: {
         if (args.tagSyncStatus === 'conflict') {
             return { iconPath: new vscode.ThemeIcon('tag', new vscode.ThemeColor('errorForeground')), description: '⚠ conflict', tooltip: `${args.refName} — conflicts with remote (different commits)` };
         }
+        if (args.tagSyncStatus === 'synced') {
+            // Explicit confirmation: otherwise a successful push looks like a no-op
+            // (the row merely loses its "↑ not pushed" note).
+            return {
+                iconPath: new vscode.ThemeIcon('tag', new vscode.ThemeColor('charts.green')),
+                description: '✓ pushed',
+                tooltip: `${args.refName} — local and remote point at the same commit`,
+            };
+        }
+        // No sync probe yet (offline / no remote configured): plain tag, no indicator.
         return { iconPath: new vscode.ThemeIcon('tag') };
     }
     return { iconPath: new vscode.ThemeIcon('git-branch'), description: args.syncDesc || undefined };

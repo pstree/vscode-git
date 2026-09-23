@@ -29,6 +29,41 @@ export async function runGit(repo: Repository, args: string[]): Promise<{ stdout
     return execFileAsync(getGitPath(), args, { cwd });
 }
 
+/**
+ * Remote tags as `name → commit`, for comparing against local tags. Annotated
+ * tags are resolved to their peeled commit (`<name>^{}`) so a value here always
+ * matches what `rev-parse refs/tags/<name>^{commit}` reports locally. Returns
+ * `undefined` when the remote is unreachable (offline / no permission) —
+ * callers must treat that as "unknown", never as "the tag is not there".
+ *
+ * The whole tag list is fetched rather than a `refs/tags/<name>` pattern:
+ * `ls-remote` omits the peeled `^{}` line as soon as a pattern is given, which
+ * would make every annotated tag look like it differs from its own local copy.
+ */
+export async function listRemoteTags(repo: Repository, remoteName: string): Promise<Map<string, string> | undefined> {
+    try {
+        const { stdout } = await execFileAsync(
+            getGitPath(),
+            ['ls-remote', '--tags', remoteName],
+            { cwd: repo.rootUri.fsPath }
+        );
+        const tags = new Map<string, string>();
+        for (const line of stdout.trim().split('\n').filter(Boolean)) {
+            const [commit, ref] = line.split('\t');
+            if (!commit || !ref || !ref.startsWith('refs/tags/')) { continue; }
+            if (ref.endsWith('^{}')) {
+                tags.set(ref.slice('refs/tags/'.length, -3), commit); // peeled wins
+            } else {
+                const name = ref.slice('refs/tags/'.length);
+                if (!tags.has(name)) { tags.set(name, commit); }
+            }
+        }
+        return tags;
+    } catch {
+        return undefined;
+    }
+}
+
 /** Split a remote-tracking ref name into its `{ remote, branch }` components. */
 export function parseRemoteBranch(repo: Repository, ref: Ref): { remote: string; branch: string } {
     const fullName = ref.name ?? '';

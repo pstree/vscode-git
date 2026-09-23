@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 
-export const enum RefType {
+// Plain enum rather than `const enum`: it is imported by other modules, and
+// esbuild compiles file-by-file so it cannot inline `const enum` members.
+export enum RefType {
     Head = 0,
     RemoteHead = 1,
     Tag = 2,

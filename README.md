@@ -27,15 +27,19 @@ Each branch row has an inline **refresh** icon (pull/update its upstream); a bra
 
 ### Tags Panel
 
-Lists local tags alphabetically with a sync indicator per tag:
+Lists local tags alphabetically with a sync indicator per tag. Tag rows are read straight from `for-each-ref` (not the built-in extension's ref snapshot), so a tag you just created or deleted shows up immediately:
 
 | Indicator | Meaning |
 |-----------|---------|
-| (none) | Exists locally and on remote, same commit |
+| `✓ pushed` (green) | Exists locally and on remote, same commit |
 | `↑ not pushed` (yellow) | Local-only, not yet pushed |
 | `⚠ conflict` (red) | Local and remote point to different commits |
 
 **Right-click actions:** Checkout Tag (detached), Checkout to Local Branch, Push Tag, Delete Tag. Toolbar: Create Tag, Refresh.
+
+- **Create Tag** — annotated (`git tag -a -m`) when a message is given, otherwise lightweight. A duplicate name asks whether to overwrite it (`-f`) instead of just failing.
+- **Push Tag** — pushes `refs/tags/<name>` to the chosen remote. The remote ref is compared first: when it already points at a different commit — the case git rejects — you are asked whether to force-push and overwrite it.
+- **Delete Tag** — asks whether to delete the local tag only or local + remote; the remote option is offered only when the tag actually exists there.
 
 ### Ahead / Behind indicator
 

@@ -65,15 +65,19 @@ export function triggerRefresh(): Promise<void> {
 }
 
 /**
- * Run `fn` under a progress notification. On success it triggers the shared
- * refresh. The error is NOT reported here — it is re-thrown so the command layer
- * (the `registerCommand` wrapper) surfaces it exactly once, avoiding duplicate
- * toasts between this helper, the handler, and VS Code's "command failed" notice.
+ * Run `fn` under a progress notification. It triggers the shared refresh on the
+ * way out — including when `fn` throws, because a rejected/failed git op can
+ * still leave the views stale (e.g. a refused tag push). The error itself is NOT
+ * reported here — it is re-thrown so the command layer (the `registerCommand`
+ * wrapper) surfaces it exactly once, avoiding duplicate toasts between this
+ * helper, the handler, and VS Code's "command failed" notice.
  */
 export async function withProgress<T>(title: string, fn: () => Promise<T>): Promise<T> {
     return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, async () => {
-        const result = await fn();
-        await _refresh?.();
-        return result;
+        try {
+            return await fn();
+        } finally {
+            await _refresh?.();
+        }
     });
 }
