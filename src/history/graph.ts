@@ -167,11 +167,19 @@ function renderRowSvg(row: RowLayout, svgWidth: number): string {
     return `<svg width="${svgWidth}" height="${ROW_H}" style="display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">${els.join('')}</svg>`;
 }
 
+// How many branch chips the (width-capped) Branch column renders before the rest
+// collapse into a "+N" summary. Two fits the common `main` + `origin/main` pair
+// while leaving the remaining refs readable through the cell's tooltip.
+const MAX_BRANCH_CHIPS = 2;
+
 /**
  * Turn a commit's `%D` decoration string into the Branch column's content:
  * one chip per branch pointing at the commit, with the checked-out branch
  * (`HEAD -> x`) highlighted. Tags and symbolic `HEAD` / `<remote>/HEAD` refs
- * are dropped — the column is about branches.
+ * are dropped — the column is about branches. At most MAX_BRANCH_CHIPS chips are
+ * rendered (then "+N") because the column is width-capped: rendering every ref
+ * would divide that cap into unreadable slivers. `text` always lists them all
+ * and becomes the cell's tooltip.
  */
 function renderRefChips(refs: string): { html: string; text: string } {
     if (!refs) { return { html: '', text: '' }; }
@@ -195,9 +203,11 @@ function renderRefChips(refs: string): { html: string; text: string } {
         if (item === 'HEAD' || item.endsWith('/HEAD')) { continue; }
         if (!names.includes(item)) { names.push(item); }
     }
-    const html = names
+    const shown = names.slice(0, MAX_BRANCH_CHIPS);
+    const hidden = names.length - shown.length;
+    const html = shown
         .map(n => `<span class="ref-chip${n === current ? ' ref-head' : ''}">${escapeHtml(n)}</span>`)
-        .join('');
+        .join('') + (hidden > 0 ? `<span class="ref-chip ref-chip-more">+${hidden}</span>` : '');
     return { html, text: names.join('  ') };
 }
 

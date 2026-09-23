@@ -57,7 +57,7 @@ Open **View History** (right-click a branch, or in the editor / Explorer **Git H
 - **Search / filter** — two boxes filter the loaded commits in place: subject / hash, plus a dedicated **author** box whose dropdown enumerates the authors found in the shown repositories; `Esc` clears. `-- ALL --` / multi-branch view for cross-branch file compare.
 - **Commit right-click menu** — Copy hash/subject, Checkout, Create branch from here, Cherry-pick, Revert, Compare with working tree, Reset (soft/hard), Export patch, Open in browser; multi-select for "Export as one patch" / "Copy hashes".
 - **File right-click menu** — GET 左侧旧版本 (restore the left/old version via `git checkout <hash> -- <path>`), Compare with working tree.
-- **Branch column** (last) — one chip per branch pointing at each commit; the checked-out branch (`HEAD -> …`, on the newest commit) is highlighted. Tags and the symbolic `origin/HEAD` entry are omitted.
+- **Branch column** (last) — one chip per branch pointing at each commit; the checked-out branch (`HEAD -> …`, on the newest commit) is highlighted. Tags and the symbolic `origin/HEAD` entry are omitted. The column is capped at **140px** and shows at most **2 chips plus a `+N` summary** (hover the cell for the full ref list) so a commit's long branch list can't squeeze the message column.
 - **Project column** — only in the `All projects` view: each row shows the repository it came from as a badge, in its own column (before the message).
 - **Resizable splitter** — the height between table and file panel persists per workspace.
 

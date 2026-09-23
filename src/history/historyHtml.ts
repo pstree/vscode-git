@@ -323,10 +323,12 @@ export function buildHistoryHtml(
   /* Project column ("all projects" mode only): one repo badge per row. */
   .col-project { max-width: 160px; overflow: hidden; }
   .col-project .repo-badge { margin-right: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  /* Branch column (last): one chip per branch pointing at the commit, capped so
-     a long ref list can't push the other columns off-screen. */
+  /* Branch column (last): one chip per branch pointing at the commit. The column
+     is width-capped (max-width) so a long ref list can't push the other columns
+     off-screen; graph.ts renders at most MAX_BRANCH_CHIPS chips plus a "+N" summary, so
+     the remaining space is never divided into unreadable slivers. */
   .col-branch {
-    max-width: 200px; overflow: hidden;
+    max-width: 140px; overflow: hidden;
     display: flex; align-items: center; gap: 4px;
   }
   /* While the changed-files pane is open the Branch column is dropped (its now
@@ -345,6 +347,15 @@ export function buildHistoryHtml(
     background: var(--vscode-charts-green, #98c379);
     color: var(--vscode-editor-background, #1e1e1e);
     font-weight: 600;
+  }
+  /* "+N" summary for the refs the capped column can't show (the full list stays
+     in the cell's tooltip). It must not flex-shrink, otherwise the branch chips
+     squeeze the count itself into a sliver. */
+  .ref-chip.ref-chip-more {
+    flex: 0 0 auto;
+    padding: 0 2px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
   }
 
   .files-toolbar {
